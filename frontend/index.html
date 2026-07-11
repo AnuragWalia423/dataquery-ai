@@ -1,0 +1,1751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>DataQuery AI | Universal SQL Database Agent</title>
+    <script>
+        (function() {
+            try {
+                var saved = localStorage.getItem('dq_theme');
+                var theme = saved === 'dark' || saved === 'light' ? saved
+                    : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', theme);
+            } catch(_) {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <style>
+        :root {
+            --bg: #f7f9fb;
+            --surface: #ffffff;
+            --on-primary: #ffffff;
+            --surface-alt: #f2f4f6;
+            --surface-alt-2: #f8fafb;
+            --border: #e0e3e5;
+            --border-light: #eef0f2;
+            --border-strong: #bcc9c6;
+            --input-border: #d0d5d9;
+            --divider: rgba(51,65,85,0.08);
+            --text: #191c1e;
+            --text-secondary: #3d4947;
+            --text-muted: #6d7a77;
+            --primary: #00685f;
+            --primary-hover: #00534c;
+            --primary-active: #008378;
+            --danger: #ba1a1a;
+            --danger-bg: #fef2f2;
+            --success: #15803d;
+            --success-hover: #0d6b2a;
+            --success-bg: #f0fdf4;
+            --warning-text: #92400e;
+            --warning-bg: #fefce8;
+            --warning-border: #fde68a;
+            --drop-zone-bg: #fafbfc;
+            --progress-bg: #e8f0fe;
+            --row-hover: #f8f9fa;
+            --shadow-sm: rgba(0,0,0,0.04);
+            --shadow-md: rgba(0,0,0,0.08);
+            --shadow-lg: rgba(0,0,0,0.15);
+        }
+        html[data-theme="dark"] {
+            --bg: #10171a;
+            --surface: #182225;
+            --surface-alt: #222e31;
+            --surface-alt-2: #1c2629;
+            --border: #2a373b;
+            --border-light: #243033;
+            --border-strong: #3c4a4e;
+            --input-border: #3a484c;
+            --divider: rgba(255,255,255,0.08);
+            --text: #eef2f1;
+            --text-secondary: #c3ccc9;
+            --text-muted: #8fa19c;
+            --primary: #2dd4bf;
+            --primary-hover: #5eead4;
+            --primary-active: #14b8a6;
+            --danger: #f87171;
+            --danger-bg: #3a1f1f;
+            --success: #4ade80;
+            --success-hover: #22c55e;
+            --success-bg: #142a1c;
+            --warning-text: #fbbf24;
+            --warning-bg: #332b13;
+            --warning-border: #4a3f1a;
+            --drop-zone-bg: #1c2628;
+            --progress-bg: #1c2a3a;
+            --row-hover: #202b2d;
+            --shadow-sm: rgba(0,0,0,0.2);
+            --shadow-md: rgba(0,0,0,0.3);
+            --shadow-lg: rgba(0,0,0,0.45);
+        }
+        html, body { transition: background-color 0.2s ease, color 0.2s ease; }
+        * { box-sizing: border-box; }
+        body { background: var(--bg); font-family: 'Inter', sans-serif; color: var(--text); margin: 0; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; vertical-align: middle; }
+        .clinical-card { background: var(--surface); border-radius: 10px; border: 1px solid var(--divider); box-shadow: 0 1px 3px var(--shadow-sm); overflow: hidden; }
+        .page-content { display: none; }
+        .page-content.active { display: block; }
+        .sidebar { width: 270px; background: var(--surface); border-right: 1px solid var(--divider); height: 100vh; position: fixed; left: 0; top: 0; overflow-y: auto; z-index: 100; padding: 16px 12px; display: flex; flex-direction: column; }
+        .sidebar::-webkit-scrollbar { width: 4px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+        .nav-link { display: flex; align-items: center; gap: 12px; padding: 8px 14px; color: var(--text-secondary); border-radius: 8px; cursor: pointer; transition: all 0.15s; font-size: 14px; font-weight: 500; }
+        .nav-link:hover { background: var(--surface-alt); }
+        .nav-link.active { background: var(--primary-active); color: #fff; font-weight: 600; }
+        .nav-link.active .material-symbols-outlined { color: #fff; }
+        .sidebar-btn { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 5px 14px; font-size: 13px; color: var(--text-secondary); background: none; border: none; cursor: pointer; border-radius: 6px; font-family: inherit; }
+        .sidebar-btn:hover { background: var(--surface-alt); }
+        .sidebar-section h4 { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 14px 4px 14px; margin: 0; }
+        .main-content { margin-left: 270px; flex: 1; min-height: 100vh; padding: 16px 28px 40px 28px; max-width: calc(100% - 270px); }
+        .topbar { background: var(--surface); border-bottom: 1px solid var(--divider); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+        .theme-toggle-btn { width: 34px; height: 34px; border: none; background: var(--surface-alt); border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: background 0.15s; }
+        .theme-toggle-btn:hover { background: var(--border); }
+        .theme-toggle-btn .theme-icon-dark { display: none; }
+        html[data-theme="dark"] .theme-toggle-btn .theme-icon-light { display: none; }
+        html[data-theme="dark"] .theme-toggle-btn .theme-icon-dark { display: inline; }
+        #auth-overlay { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; align-items: center; justify-content: center; }
+        #auth-overlay.hidden { display: none; }
+        .auth-card { background: var(--surface); border-radius: 16px; box-shadow: 0 4px 32px var(--shadow-md); padding: 32px 28px; width: 100%; max-width: 400px; }
+        #toast { position: fixed; bottom: 24px; right: 24px; z-index: 9998; background: #1a1a2e; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; max-width: 420px; box-shadow: 0 4px 16px var(--shadow-lg); }
+        #toast.show { opacity: 1; }
+        .chart-container { height: 260px; position: relative; }
+        .kpi-value { font-size: 26px; font-weight: 700; color: var(--primary); }
+        .kpi-label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+        .animate-spin { animation: spin 0.8s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .insight-block { background: var(--success-bg); border-left: 4px solid var(--success); padding: 14px 18px; border-radius: 0 8px 8px 0; font-size: 14px; line-height: 1.7; }
+        .pdf-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+        .pdf-btn:hover { background: var(--surface-alt); border-color: var(--border-strong); }
+        .abc-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:14px; }
+        .abc-card { padding:14px; border:1px solid var(--border-light); border-radius:10px; background:var(--surface-alt-2); }
+        .abc-card-value { font-size:24px; font-weight:700; margin:4px 0; }
+        .drop-zone { border: 2px dashed var(--border-strong); border-radius: 12px; padding: 36px 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--drop-zone-bg); }
+        .drop-zone:hover { border-color: var(--primary); background: var(--success-bg); }
+        .drop-zone.drag-over { border-color: var(--primary); background: var(--success-bg); }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .data-table th { text-align: left; padding: 7px 12px; background: var(--surface-alt); font-weight: 600; color: var(--text-secondary); border-bottom: 2px solid var(--border); }
+        .data-table td { padding: 6px 12px; border-bottom: 1px solid var(--border-light); }
+        .data-table tr:hover { background: var(--row-hover); }
+        .upload-progress { background: var(--progress-bg); border-radius: 8px; height: 6px; overflow: hidden; margin-top: 8px; }
+        .upload-progress-bar { height: 100%; background: var(--primary); transition: width 0.3s; width: 0%; }
+        @media (max-width: 768px) { .sidebar { width: 220px; padding: 12px 8px; } .main-content { margin-left: 220px; padding: 12px; max-width: calc(100% - 220px); } }
+        @media (max-width: 640px) { .sidebar { display: none; } .main-content { margin-left: 0; max-width: 100%; padding: 12px; } }
+    </style>
+</head>
+<body>
+
+<!-- AUTH OVERLAY -->
+<div id="auth-overlay">
+    <div class="auth-card">
+        <div style="text-align:center; margin-bottom:1.2rem;">
+            <div style="font-size:2.2rem;">📊</div>
+            <div style="font-size:1.3rem; font-weight:700; color:var(--primary);">DataQuery AI</div>
+            <div style="font-size:0.82rem; color:var(--text-muted);">Universal SQL Database Agent</div>
+        </div>
+        <div style="display:flex; border-bottom:1px solid var(--border); margin-bottom:1.2rem;">
+            <button id="tab-login" style="flex:1; padding:8px; border:none; background:none; font-weight:600; color:var(--primary); border-bottom:2px solid var(--primary); cursor:pointer;">Sign In</button>
+            <button id="tab-signup" style="flex:1; padding:8px; border:none; background:none; font-weight:400; color:var(--text-muted); border-bottom:2px solid transparent; cursor:pointer;">Create Account</button>
+        </div>
+        <form id="login-form">
+            <div id="login-error" style="display:none; color:var(--danger); font-size:14px; margin-bottom:10px;"></div>
+            <label style="display:block; font-size:13px; font-weight:500; margin-bottom:3px;">Username</label>
+            <input id="login-username" type="text" placeholder="your_username" required style="width:100%; padding:8px 12px; border:1px solid var(--input-border); border-radius:8px; font-size:14px; margin-bottom:12px; box-sizing:border-box;"/>
+            <label style="display:block; font-size:13px; font-weight:500; margin-bottom:3px;">Password</label>
+            <input id="login-password" type="password" placeholder="••••••••" required style="width:100%; padding:8px 12px; border:1px solid var(--input-border); border-radius:8px; font-size:14px; margin-bottom:16px; box-sizing:border-box;"/>
+            <button type="submit" style="width:100%; padding:10px; background:var(--primary); color:var(--on-primary); border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer;">Sign In</button>
+        </form>
+        <form id="signup-form" style="display:none;">
+            <div id="signup-error" style="display:none; color:var(--danger); font-size:14px; margin-bottom:10px;"></div>
+            <label style="display:block; font-size:13px; font-weight:500; margin-bottom:3px;">Username</label>
+            <input id="su-username" type="text" placeholder="e.g. john_doe" required style="width:100%; padding:8px 12px; border:1px solid var(--input-border); border-radius:8px; font-size:14px; margin-bottom:12px; box-sizing:border-box;"/>
+            <label style="display:block; font-size:13px; font-weight:500; margin-bottom:3px;">Email</label>
+            <input id="su-email" type="email" placeholder="you@example.com" required style="width:100%; padding:8px 12px; border:1px solid var(--input-border); border-radius:8px; font-size:14px; margin-bottom:12px; box-sizing:border-box;"/>
+            <label style="display:block; font-size:13px; font-weight:500; margin-bottom:3px;">Password</label>
+            <input id="su-password" type="password" placeholder="Min 8 chars, 1 uppercase, 1 digit" required style="width:100%; padding:8px 12px; border:1px solid var(--input-border); border-radius:8px; font-size:14px; margin-bottom:12px; box-sizing:border-box;"/>
+            <label style="display:block; font-size:13px; font-weight:500; margin-bottom:3px;">Confirm Password</label>
+            <input id="su-confirm" type="password" placeholder="Repeat password" required style="width:100%; padding:8px 12px; border:1px solid var(--input-border); border-radius:8px; font-size:14px; margin-bottom:16px; box-sizing:border-box;"/>
+            <button type="submit" style="width:100%; padding:10px; background:var(--primary); color:var(--on-primary); border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer;">Create Account</button>
+        </form>
+    </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" style="display:none; display:flex; min-height:100vh;">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div style="display:flex; align-items:center; gap:12px; padding:0 6px 14px 6px; border-bottom:1px solid var(--divider);">
+            <div style="width:38px; height:38px; border-radius:10px; background:var(--primary); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <span class="material-symbols-outlined" style="color:var(--on-primary); font-size:22px; font-variation-settings:'FILL'1;">analytics</span>
+            </div>
+            <div>
+                <div style="font-weight:700; font-size:16px; color:var(--primary);">DataQuery AI</div>
+                <div style="font-size:11px; color:var(--text-muted);">Universal SQL Agent</div>
+            </div>
+        </div>
+        <nav style="flex:1; padding-top:12px;">
+            <a class="nav-link active" data-page="page-dashboard" onclick="showPage('page-dashboard')"><span class="material-symbols-outlined">dashboard</span> Dashboard</a>
+            <a class="nav-link" data-page="page-upload" onclick="showPage('page-upload')"><span class="material-symbols-outlined">upload_file</span> Upload &amp; Clean</a>
+            <a class="nav-link" data-page="page-chat" onclick="showPage('page-chat')"><span class="material-symbols-outlined">forum</span> SQL Chat</a>
+            <a class="nav-link" data-page="page-kpi" onclick="showPage('page-kpi')"><span class="material-symbols-outlined">query_stats</span> KPI Dashboard</a>
+            <a class="nav-link" data-page="page-inventory" onclick="showPage('page-inventory')"><span class="material-symbols-outlined">inventory_2</span> Inventory Analytics</a>
+            <a class="nav-link" data-page="page-explorer" onclick="showPage('page-explorer')"><span class="material-symbols-outlined">explore</span> Data Explorer</a>
+        </nav>
+        <div style="border-top:1px solid var(--divider); padding-top:12px;">
+            <div style="display:flex; align-items:center; gap:8px; padding:4px 14px 10px 14px;">
+                <span class="material-symbols-outlined" style="font-size:18px; color:var(--primary);">person</span>
+                <span id="sidebar-username" style="font-size:13px; color:var(--text-secondary); font-weight:500;">User</span>
+            </div>
+            <div style="padding:0 14px 10px 14px;">
+                <div style="font-size:11px; color:var(--text-muted);">Current Dataset</div>
+                <div id="sidebar-dataset-name" style="font-size:13px; font-weight:600; color:var(--text);">None</div>
+                <div id="sidebar-dataset-type" style="font-size:11px; color:var(--text-muted);">Type: Unknown</div>
+            </div>
+            <div class="sidebar-section">
+                <h4>Sales Questions</h4>
+                <button class="sidebar-btn" onclick="quickQuery('What are the top 5 customers by revenue?')"><span class="material-symbols-outlined">trending_up</span> Top 5 customers</button>
+                <button class="sidebar-btn" onclick="quickQuery('Show me total sales by region')"><span class="material-symbols-outlined">map</span> Sales by region</button>
+                <button class="sidebar-btn" onclick="quickQuery('Show me monthly sales trend')"><span class="material-symbols-outlined">trending_up</span> Monthly sales trend</button>
+            </div>
+            <div class="sidebar-section">
+                <h4>KPI Shortcuts</h4>
+                <button class="sidebar-btn" onclick="quickQuery('Total Revenue')"><span class="material-symbols-outlined">payments</span> Total Revenue</button>
+                <button class="sidebar-btn" onclick="quickQuery('Total Profit')"><span class="material-symbols-outlined">trending_up</span> Total Profit</button>
+                <button class="sidebar-btn" onclick="quickQuery('Total Orders')"><span class="material-symbols-outlined">receipt_long</span> Total Orders</button>
+                <button class="sidebar-btn" onclick="quickQuery('Total Customers')"><span class="material-symbols-outlined">people</span> Total Customers</button>
+            </div>
+            <button class="nav-link" style="width:100%; margin-top:8px;" onclick="logout()"><span class="material-symbols-outlined">logout</span> Logout</button>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-content">
+
+        <!-- Top Bar -->
+        <div class="topbar">
+            <div style="display:flex; align-items:center; gap:12px; flex:1;">
+                <div style="position:relative; flex:1; max-width:340px;">
+                    <span class="material-symbols-outlined" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:18px; color:var(--text-muted);">search</span>
+                    <input id="global-search" placeholder="Search..." style="width:100%; padding:6px 12px 6px 38px; border:1px solid var(--border); border-radius:20px; font-size:13px; background:var(--bg); outline:none; transition:0.2s;" onfocus="this.style.borderColor='var(--primary)'; this.style.background='var(--surface)';" onblur="this.style.borderColor='var(--border)'; this.style.background='var(--bg)';"/>
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:14px;">
+                <div style="display:flex; align-items:center; gap:6px; background:var(--surface-alt); padding:4px 12px 4px 8px; border-radius:20px;">
+                    <span class="material-symbols-outlined" style="font-size:16px; color:var(--primary); font-variation-settings:'FILL'1;">database</span>
+                    <span id="active-dataset-badge" style="font-size:12px; font-weight:600; color:var(--primary);">None</span>
+                </div>
+                <button class="theme-toggle-btn" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+                    <span class="material-symbols-outlined theme-icon-light" style="font-size:19px;">dark_mode</span>
+                    <span class="material-symbols-outlined theme-icon-dark" style="font-size:19px;">light_mode</span>
+                </button>
+                <div style="width:30px; height:30px; border-radius:50%; overflow:hidden; border:2px solid var(--border);"><img style="width:100%; height:100%; object-fit:cover;" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCXPHgDdjm7K6MnknI3oncCBnvSekb7Et3sm40kedVEEOjRA2lNsx2s9i6EMGOFkWT1hWmjh6GHG7EBTQj9Htm0ZWqXfYHOqqzeGCaxQgc07Xsu8r13xP2EkSWEBE4nUQwPHcSjmtaMBaWBASKvJ72WNXTscGem3EeAXZ_TW4oBNSJgpAJvZe3fEkFz8VW7RNw-BX_ZFLhtaQ82RHQBCpfmaz11xAJcvzLqOx6AylGZDm6xhrU2iXOFSQ"/></div>
+            </div>
+        </div>
+
+        <!-- Page Content -->
+        <div style="padding-top:16px;">
+
+            <!-- PAGE: DASHBOARD -->
+            <div id="page-dashboard" class="page-content active">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+                    <div style="padding:8px; background:var(--surface-alt); border-radius:10px;"><span class="material-symbols-outlined" style="color:var(--primary); font-size:24px; font-variation-settings:'FILL'1;">dashboard</span></div>
+                    <div><h2 style="font-size:20px; font-weight:600; margin:0; color:var(--text);">Universal SQL Database Agent</h2><p style="font-size:13px; color:var(--text-muted); margin:2px 0 0 0;">Finance, sales, inventory, and supply chain analytics</p></div>
+                </div>
+
+                <div class="clinical-card" style="padding:20px 24px;">
+                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+                        <div style="padding:6px; background:var(--surface-alt); border-radius:8px;"><span class="material-symbols-outlined" style="color:var(--primary); font-size:20px; font-variation-settings:'FILL'1;">psychology</span></div>
+                        <h3 style="font-size:17px; font-weight:600; margin:0;">Ask Your Data</h3>
+                    </div>
+                    <div style="position:relative;">
+                        <textarea id="query-input" style="width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:10px; font-size:14px; font-family:inherit; resize:vertical; min-height:90px; outline:none; transition:0.2s; background:var(--surface);" placeholder="e.g. What are the top 5 products by revenue this quarter?" onfocus="this.style.borderColor='var(--primary)';" onblur="this.style.borderColor='var(--border)';"></textarea>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+                            <span style="font-size:12px; color:var(--text-muted);">⌘ + Enter to run</span>
+                            <button id="get-answer-btn" style="background:var(--primary); color:var(--on-primary); border:none; padding:8px 18px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:0.2s;" onmouseover="this.style.background='var(--primary-hover)';" onmouseout="this.style.background='var(--primary)';"><span class="material-symbols-outlined" style="font-size:18px;">auto_awesome</span> Get Answer</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="result-panel" class="clinical-card" style="display:none; margin-top:16px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 18px; border-bottom:1px solid var(--border-light); background:var(--surface-alt-2);">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span class="material-symbols-outlined" style="color:var(--primary); font-size:22px; font-variation-settings:'FILL'1;">query_stats</span>
+                            <div><div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);">Result</div><div id="result-question" style="font-size:14px; font-weight:600; color:var(--text);"></div></div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span id="result-provider" style="font-size:11px; padding:2px 10px; background:var(--surface-alt); border-radius:12px; color:var(--text-secondary);"></span>
+                            <button class="pdf-btn" onclick="downloadElementPDF('result-panel', 'llm-insight')" title="Download this result as PDF"><span class="material-symbols-outlined" style="font-size:16px;">picture_as_pdf</span> PDF</button>
+                            <button onclick="document.getElementById('result-panel').style.display='none'" style="border:none; background:none; cursor:pointer; color:var(--text-muted); padding:4px; border-radius:50%;"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
+                        </div>
+                    </div>
+                    <div id="result-sql-wrap" style="display:none; padding:14px 18px 0 18px;"><div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:4px;">SQL Used</div><pre id="result-sql" style="background:#0f172a; color:#e2e8f0; padding:10px 14px; border-radius:8px; font-size:12px; overflow-x:auto; margin:0; font-family:monospace;"></pre></div>
+                    <div id="result-table-wrap" style="display:none; padding:14px 18px 0 18px; overflow-x:auto;"><div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:4px;">Data</div><table id="result-table" style="width:100%; border-collapse:collapse; font-size:13px;"><thead id="result-thead" style="background:var(--surface-alt);"></thead><tbody id="result-tbody"></tbody></table></div>
+                    <div id="result-chart-wrap" style="display:none; padding:14px 18px 0 18px;"><div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:4px;">Chart</div><div class="chart-container"><canvas id="result-chart"></canvas></div></div>
+                    <div id="result-insight-wrap" style="display:none; padding:14px 18px 18px 18px;"><div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:4px;">AI Insight</div><div id="result-insight" class="insight-block"></div></div>
+                </div>
+
+                <!-- KPI Cards -->
+                <div style="display:flex; justify-content:flex-end; margin-top:12px; margin-bottom:-8px;"><button class="pdf-btn" onclick="downloadElementPDF('kpi-cards', 'dashboard-kpis')"><span class="material-symbols-outlined" style="font-size:16px;">picture_as_pdf</span> Download KPI PDF</button></div>
+                <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:16px;" id="kpi-cards">
+                    <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Total Revenue</div><div id="kpi-revenue" class="kpi-value">$--</div></div>
+                    <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Total Profit</div><div id="kpi-profit" class="kpi-value">$--</div></div>
+                    <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Total Orders</div><div id="kpi-orders" class="kpi-value">--</div></div>
+                    <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Total Customers</div><div id="kpi-customers" class="kpi-value">--</div></div>
+                </div>
+            </div>
+
+            <!-- PAGE: UPLOAD & CLEANING -->
+            <div id="page-upload" class="page-content">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+                    <div style="padding:8px; background:var(--surface-alt); border-radius:10px;"><span class="material-symbols-outlined" style="color:var(--primary); font-size:24px; font-variation-settings:'FILL'1;">upload_file</span></div>
+                    <div><h2 style="font-size:20px; font-weight:600; margin:0; color:var(--text);">Data Upload &amp; Cleaning</h2><p style="font-size:13px; color:var(--text-muted); margin:2px 0 0 0;">Upload, clean, and normalize your dataset</p></div>
+                </div>
+                <div id="drop-zone" class="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="handleDrop(event)">
+                    <span class="material-symbols-outlined" style="font-size:40px; color:var(--text-muted);">cloud_upload</span>
+                    <div style="font-weight:500; margin-top:4px;">Drop your file here or click to browse</div>
+                    <div style="font-size:12px; color:var(--text-muted);">CSV · Excel · JSON · Parquet</div>
+                    <input id="file-input" type="file" accept=".csv,.xlsx,.xls,.json,.parquet" style="display:none;" onchange="handleFileSelect(event)"/>
+                </div>
+                <div id="file-preview" style="display:none; margin-top:14px;">
+                    <div class="clinical-card" style="padding:18px 22px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <span class="material-symbols-outlined" style="color:var(--primary); font-size:26px;">description</span>
+                                <div><div id="file-name" style="font-weight:600; font-size:14px;"></div><div id="file-size" style="font-size:12px; color:var(--text-muted);"></div></div>
+                            </div>
+                            <button onclick="clearFile()" style="border:none; background:none; cursor:pointer; color:var(--text-muted); padding:4px;"><span class="material-symbols-outlined" style="font-size:20px;">close</span></button>
+                        </div>
+                        <div id="data-preview-container" style="display:none; margin-top:14px; border-top:1px solid var(--border-light); padding-top:12px;">
+                            <div style="font-weight:600; font-size:14px; margin-bottom:6px;">Data Preview</div>
+                            <div id="data-preview-table" style="overflow-x:auto;"></div>
+                            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px;">
+                                <div style="text-align:center; padding:8px; background:var(--bg); border-radius:8px;"><div style="font-size:11px; color:var(--text-muted);">Rows</div><div id="preview-rows" style="font-weight:600; font-size:15px;">0</div></div>
+                                <div style="text-align:center; padding:8px; background:var(--bg); border-radius:8px;"><div style="font-size:11px; color:var(--text-muted);">Columns</div><div id="preview-cols" style="font-weight:600; font-size:15px;">0</div></div>
+                                <div style="text-align:center; padding:8px; background:var(--bg); border-radius:8px;"><div style="font-size:11px; color:var(--text-muted);">Type</div><div id="preview-dataset-type" style="font-weight:600; font-size:13px;">Detecting</div></div>
+                                <div style="text-align:center; padding:8px; background:var(--bg); border-radius:8px;"><div style="font-size:11px; color:var(--text-muted);">Cleaning</div><div style="font-weight:600; font-size:13px; color:var(--primary);">Advanced</div></div>
+                            </div>
+                        </div>
+                        <div style="border-top:1px solid var(--border-light); padding-top:12px; margin-top:12px;">
+                            <div style="font-weight:600; font-size:14px; margin-bottom:8px;">🧹 Data Cleaning</div>
+                            <div style="display:grid; grid-template-columns:2fr 1fr; gap:12px;">
+                                <div>
+                                    <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:3px;">Table Name</label>
+                                    <input id="table-name-input" type="text" placeholder="e.g. sales_2024" style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px; outline:none; transition:0.2s; background:var(--surface);" onfocus="this.style.borderColor='var(--primary)';" onblur="this.style.borderColor='var(--border)';"/>
+                                </div>
+                                <div style="display:flex; align-items:flex-end;">
+                                    <button id="run-cleaning-btn" onclick="runCleaning()" style="width:100%; background:var(--primary); color:var(--on-primary); border:none; padding:9px 14px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:0.2s; display:flex; align-items:center; justify-content:center; gap:6px;" onmouseover="this.style.background='var(--primary-hover)';" onmouseout="this.style.background='var(--primary)';"><span class="material-symbols-outlined" style="font-size:18px;">cleaning_services</span> Run</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="cleaning-results" style="display:none; border-top:1px solid var(--border-light); padding-top:12px; margin-top:12px;">
+                            <div style="font-weight:600; font-size:14px; margin-bottom:8px; color:var(--success);">✅ Cleaning Results</div>
+                            <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;">
+                                <div style="text-align:center; padding:8px; background:var(--bg); border-radius:8px;"><div style="font-size:11px; color:var(--text-muted);">Original</div><div id="clean-original-rows" style="font-weight:600; font-size:15px;">0</div></div>
+                                <div style="text-align:center; padding:8px; background:var(--bg); border-radius:8px;"><div style="font-size:11px; color:var(--text-muted);">Cleaned</div><div id="clean-cleaned-rows" style="font-weight:600; font-size:15px;">0</div></div>
+                                <div style="text-align:center; padding:8px; background:var(--bg); border-radius:8px;"><div style="font-size:11px; color:var(--text-muted);">Removed</div><div id="clean-removed-rows" style="font-weight:600; font-size:15px;">0</div></div>
+                                <div style="text-align:center; padding:8px; background:var(--bg); border-radius:8px;"><div style="font-size:11px; color:var(--text-muted);">Added</div><div id="clean-cols-added" style="font-weight:600; font-size:15px;">0</div></div>
+                            </div>
+                            <button id="load-to-db-btn" onclick="loadToDatabase()" style="width:100%; margin-top:10px; background:var(--success); color:var(--on-primary); border:none; padding:9px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:0.2s; display:flex; align-items:center; justify-content:center; gap:6px;" onmouseover="this.style.background='var(--success-hover)';" onmouseout="this.style.background='var(--success)';"><span class="material-symbols-outlined" style="font-size:18px;">database</span> Load to Database</button>
+                        </div>
+                        <div id="upload-success" style="display:none; margin-top:12px; padding:10px 14px; background:var(--success-bg); border-radius:8px; color:var(--success); display:flex; align-items:center; gap:10px;"><span class="material-symbols-outlined">check_circle</span><div id="upload-success-msg" style="font-weight:500;"></div></div>
+                        <div id="upload-error" style="display:none; margin-top:12px; padding:10px 14px; background:var(--danger-bg); border-radius:8px; color:var(--danger); display:flex; align-items:center; gap:10px;"><span class="material-symbols-outlined">error</span><div id="upload-error-msg" style="font-weight:500;"></div></div>
+                    </div>
+                </div>
+                <div id="uploaded-tables-section" style="display:none; margin-top:14px;">
+                    <div class="clinical-card" style="padding:14px 18px;">
+                        <h3 style="font-size:15px; font-weight:600; margin:0 0 10px 0;">Your Datasets</h3>
+                        <div id="uploaded-tables-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE: SQL CHAT -->
+            <div id="page-chat" class="page-content">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+                    <div style="padding:8px; background:var(--surface-alt); border-radius:10px;"><span class="material-symbols-outlined" style="color:var(--primary); font-size:24px; font-variation-settings:'FILL'1;">forum</span></div>
+                    <div><h2 style="font-size:20px; font-weight:600; margin:0; color:var(--text);">SQL Agent Chat</h2><p style="font-size:13px; color:var(--text-muted); margin:2px 0 0 0;">Ask questions in natural language</p></div>
+                </div>
+                <div class="clinical-card" style="padding:18px; min-height:350px; display:flex; flex-direction:column;">
+                    <div id="chat-messages" style="flex:1; overflow-y:auto; margin-bottom:14px; max-height:380px;">
+                        <div style="display:flex; gap:10px; margin-bottom:10px;">
+                            <span class="material-symbols-outlined" style="color:var(--primary);">assistant</span>
+                            <div style="background:var(--bg); padding:10px 16px; border-radius:10px; flex:1;"><div style="font-size:14px;">Hello! Ask me anything about your data.</div></div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <input id="chat-input" type="text" placeholder="Ask a question..." style="flex:1; padding:8px 14px; border:1px solid var(--border); border-radius:8px; font-size:14px; outline:none; transition:0.2s; background:var(--surface);" onfocus="this.style.borderColor='var(--primary)';" onblur="this.style.borderColor='var(--border)';"/>
+                        <button onclick="sendChatMessage()" style="background:var(--primary); color:var(--on-primary); border:none; padding:8px 18px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:0.2s;" onmouseover="this.style.background='var(--primary-hover)';" onmouseout="this.style.background='var(--primary)';">Send</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE: KPI DASHBOARD -->
+            <div id="page-kpi" class="page-content">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+                    <div style="padding:8px; background:var(--surface-alt); border-radius:10px;"><span class="material-symbols-outlined" style="color:var(--primary); font-size:24px; font-variation-settings:'FILL'1;">query_stats</span></div>
+                    <div style="flex:1;"><h2 style="font-size:20px; font-weight:600; margin:0; color:var(--text);">KPI Dashboard</h2><p style="font-size:13px; color:var(--text-muted); margin:2px 0 0 0;">Monitor key performance indicators</p></div>
+                    <button class="pdf-btn" onclick="downloadElementPDF('kpi-dashboard-cards', 'kpi-dashboard')"><span class="material-symbols-outlined" style="font-size:16px;">picture_as_pdf</span> Download PDF</button>
+                    <button onclick="refreshKPIs()" style="background:var(--primary); color:var(--on-primary); border:none; padding:8px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:0.2s;" onmouseover="this.style.background='var(--primary-hover)';" onmouseout="this.style.background='var(--primary)';"><span class="material-symbols-outlined" style="font-size:18px;">refresh</span> Refresh</button>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:14px;" id="kpi-dashboard-cards">
+                    <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Revenue</div><div id="kpi-d-revenue" class="kpi-value">$--</div></div>
+                    <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Profit</div><div id="kpi-d-profit" class="kpi-value">$--</div></div>
+                    <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Orders</div><div id="kpi-d-orders" class="kpi-value">--</div></div>
+                    <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Customers</div><div id="kpi-d-customers" class="kpi-value">--</div></div>
+                </div>
+                <div class="clinical-card" style="padding:18px; margin-top:16px;">
+                    <div style="font-weight:600; font-size:14px; margin-bottom:12px;">📊 Quick Analysis</div>
+                    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px;">
+                        <button class="analysis-btn" onclick="runAnalysis('Sales by Region')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Sales by Region</button>
+                        <button class="analysis-btn" onclick="runAnalysis('Sales by Category')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Sales by Category</button>
+                        <button class="analysis-btn" onclick="runAnalysis('Profit by Category')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Profit by Category</button>
+                        <button class="analysis-btn" onclick="runAnalysis('Monthly Sales Trend')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Monthly Sales Trend</button>
+                        <button class="analysis-btn" onclick="runAnalysis('Monthly Profit Trend')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Monthly Profit Trend</button>
+                        <button class="analysis-btn" onclick="runAnalysis('YoY Revenue')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">YoY Revenue</button>
+                        <button class="analysis-btn" onclick="runAnalysis('YoY Profit')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">YoY Profit</button>
+                        <button class="analysis-btn" onclick="runAnalysis('MoM Revenue')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">MoM Revenue</button>
+                        <button class="analysis-btn" onclick="runAnalysis('MoM Profit')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">MoM Profit</button>
+                        <button class="analysis-btn" onclick="runAnalysis('Top Products')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Top Products</button>
+                        <button class="analysis-btn" onclick="runAnalysis('Top Customers by Revenue')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Top Customers by Revenue</button>
+                        <button class="analysis-btn" onclick="runAnalysis('Top Customers by Profit')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Top Customers by Profit</button>
+                        <button class="analysis-btn" onclick="runAnalysis('Customer Analysis')" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); cursor:pointer; font-size:12px; transition:0.15s; text-align:center;" onmouseover="this.style.background='var(--bg)';" onmouseout="this.style.background='var(--surface)';">Customer Analysis</button>
+                    </div>
+                </div>
+                <div id="analysis-results" style="display:none; margin-top:14px;">
+                    <div class="clinical-card" style="padding:18px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <h3 id="analysis-title" style="font-size:15px; font-weight:600; margin:0;">Analysis Results</h3>
+                            <div style="display:flex; gap:8px;"><button class="pdf-btn" onclick="downloadElementPDF('analysis-results', 'kpi-analysis')"><span class="material-symbols-outlined" style="font-size:16px;">picture_as_pdf</span> PDF</button><button onclick="document.getElementById('analysis-results').style.display='none'" style="border:none; background:none; cursor:pointer; color:var(--text-muted);"><span class="material-symbols-outlined" style="font-size:20px;">close</span></button></div>
+                        </div>
+                        <div id="analysis-table-wrap" style="overflow-x:auto;"></div>
+                        <div id="analysis-chart-wrap" style="display:none; margin-top:14px;"><div class="chart-container" style="height:220px;"><canvas id="analysis-chart"></canvas></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE: INVENTORY ANALYTICS -->
+            <div id="page-inventory" class="page-content">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+                    <div style="padding:8px; background:var(--surface-alt); border-radius:10px;"><span class="material-symbols-outlined" style="color:var(--primary); font-size:24px; font-variation-settings:'FILL'1;">inventory_2</span></div>
+                    <div><h2 style="font-size:20px; font-weight:600; margin:0; color:var(--text);">Inventory Analytics</h2><p style="font-size:13px; color:var(--text-muted); margin:2px 0 0 0;">Comprehensive inventory management insights</p></div>
+                </div>
+                <div id="inventory-warning" style="background:var(--warning-bg); border:1px solid var(--warning-border); border-radius:10px; padding:14px 18px;">
+                    <div style="font-size:14px; color:var(--warning-text);">⚠️ This page is designed for inventory datasets.</div>
+                    <div style="font-size:13px; color:var(--warning-text); margin-top:4px;">Expected columns: stock_level, reorder_point, supplier, warehouse, turnover, etc.</div>
+                </div>
+                <div id="inventory-content" style="display:none; margin-top:14px;">
+                    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:14px;">
+                        <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Total Stock</div><div id="inv-total-stock" class="kpi-value">--</div></div>
+                        <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Inventory Value</div><div id="inv-total-value" class="kpi-value">$--</div></div>
+                        <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Low Stock</div><div id="inv-low-stock" class="kpi-value">--</div></div>
+                        <div class="clinical-card" style="padding:14px; text-align:center;"><div class="kpi-label">Out of Stock</div><div id="inv-out-stock" class="kpi-value">--</div></div>
+                    </div>
+                    <div class="clinical-card" style="padding:18px; margin-top:14px;">
+                        <div style="font-weight:600; font-size:14px; margin-bottom:12px;">📦 Inventory Analysis</div>
+                        <div style="display:grid; grid-template-columns:3fr 1fr; gap:10px;">
+                            <select id="inventory-analysis-type" style="padding:8px 14px; border:1px solid var(--border); border-radius:8px; font-size:14px; outline:none; background:var(--surface);">
+                                <option value="stock_status">Stock Status Distribution</option>
+                                <option value="inventory_value">Inventory Value by Category</option>
+                                <option value="turnover_analysis">Stock Turnover Analysis</option>
+                                <option value="reorder_analysis">Reorder Point Analysis</option>
+                                <option value="supplier_analysis">Supplier Performance</option>
+                                <option value="warehouse_analysis">Warehouse Distribution</option>
+                                <option value="expiry_analysis">Expiry Date Analysis</option>
+                                <option value="abc_classification">ABC Classification</option>
+                            </select>
+                            <button onclick="runInventoryAnalysis()" style="background:var(--primary); color:var(--on-primary); border:none; padding:8px 14px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:0.2s;" onmouseover="this.style.background='var(--primary-hover)';" onmouseout="this.style.background='var(--primary)';">Run Analysis</button>
+                        </div>
+                        <div id="inventory-results" style="display:none; margin-top:14px;">
+                            <div style="display:flex; justify-content:flex-end; margin-bottom:8px;"><button class="pdf-btn" onclick="downloadElementPDF('inventory-results', 'inventory-analysis')"><span class="material-symbols-outlined" style="font-size:16px;">picture_as_pdf</span> Download PDF</button></div>
+                            <div id="abc-summary" class="abc-summary" style="display:none;"></div>
+                            <div id="inv-results-table-wrap" style="overflow-x:auto;"></div>
+                            <div id="inv-results-chart-wrap" style="display:none; margin-top:10px;"><div class="chart-container" id="inv-chart-container" style="height:220px;"><canvas id="inv-results-chart"></canvas></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE: DATA EXPLORER -->
+            <div id="page-explorer" class="page-content">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+                    <div style="padding:8px; background:var(--surface-alt); border-radius:10px;"><span class="material-symbols-outlined" style="color:var(--primary); font-size:24px; font-variation-settings:'FILL'1;">explore</span></div>
+                    <div><h2 style="font-size:20px; font-weight:600; margin:0; color:var(--text);">Data Explorer</h2><p style="font-size:13px; color:var(--text-muted); margin:2px 0 0 0;">Run custom SQL queries</p></div>
+                </div>
+                <div class="clinical-card" style="padding:18px;">
+                    <select id="explorer-table" style="width:100%; padding:8px 14px; border:1px solid var(--border); border-radius:8px; font-size:14px; outline:none; background:var(--surface); margin-bottom:10px;">
+                        <option value="">Select a table...</option>
+                    </select>
+                    <textarea id="explorer-query" style="width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:monospace; resize:vertical; min-height:100px; outline:none; background:#0f172a; color:#e2e8f0;" placeholder="SELECT * FROM your_table LIMIT 10"></textarea>
+                    <button onclick="runExplorerQuery()" style="margin-top:10px; background:var(--primary); color:var(--on-primary); border:none; padding:8px 18px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:0.2s;" onmouseover="this.style.background='var(--primary-hover)';" onmouseout="this.style.background='var(--primary)';">Run Query</button>
+                    <div id="explorer-results" style="display:none; margin-top:14px; overflow-x:auto;"></div>
+                </div>
+            </div>
+
+        </div><!-- /page-content -->
+    </div><!-- /main-content -->
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────
+const BASE_URL = 'http://localhost:8000';
+const $ = id => document.getElementById(id);
+let chartInstances = {};
+let _selectedFile = null;
+let _cleanedData = null;
+let _kpiCache = null;
+
+async function downloadElementPDF(elementId, filename) {
+    const element = $(elementId);
+    if (!element || element.offsetParent === null) {
+        toast('There are no visible results to download yet.');
+        return;
+    }
+    if (!window.html2canvas || !window.jspdf) {
+        toast('PDF tools are still loading. Please try again.');
+        return;
+    }
+
+    const buttons = Array.from(element.querySelectorAll('.pdf-btn'));
+    buttons.forEach(button => button.style.visibility = 'hidden');
+    try {
+        toast('Preparing PDF...');
+        const canvas = await html2canvas(element, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff'
+        });
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({
+            orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+            unit: 'pt',
+            format: 'a4'
+        });
+        const margin = 28;
+        const pageWidth = pdf.internal.pageSize.getWidth() - margin * 2;
+        const pageHeight = pdf.internal.pageSize.getHeight() - margin * 2;
+        const imageWidth = pageWidth;
+        const imageHeight = canvas.height * imageWidth / canvas.width;
+        const image = canvas.toDataURL('image/png', 1.0);
+        let remaining = imageHeight;
+        let y = margin;
+        pdf.addImage(image, 'PNG', margin, y, imageWidth, imageHeight);
+        remaining -= pageHeight;
+        while (remaining > 0) {
+            pdf.addPage();
+            y = margin - (imageHeight - remaining);
+            pdf.addImage(image, 'PNG', margin, y, imageWidth, imageHeight);
+            remaining -= pageHeight;
+        }
+        const safeName = (filename || 'insight-report').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+        pdf.save(`${safeName}.pdf`);
+        toast('PDF downloaded.');
+    } catch (error) {
+        console.error('PDF export failed:', error);
+        toast('Could not create the PDF.');
+    } finally {
+        buttons.forEach(button => button.style.visibility = '');
+    }
+}
+
+function formatQueryValue(value, columnName = '') {
+    if (value === null || value === undefined || value === '') {
+        return '—';
+    }
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number)) {
+        return String(value);
+    }
+
+    const column = columnName.toLowerCase();
+
+    const isIntegerMetric =
+        column.includes('count') ||
+        column.includes('orders') ||
+        column.includes('customers') ||
+        column.includes('quantity');
+
+    if (isIntegerMetric) {
+        return number.toLocaleString('en-US', {
+            maximumFractionDigits: 0
+        });
+    }
+
+    return number.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────
+function toast(msg, ms = 3000) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), ms);
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────
+function authHeaders() {
+    const t = localStorage.getItem('dq_token');
+    return t ? {'Authorization':`Bearer ${t}`,'Content-Type':'application/json'} : {'Content-Type':'application/json'};
+}
+async function apiFetch(path, opts={}) {
+    const res = await fetch(BASE_URL+path, {...opts, headers:{...authHeaders(),...(opts.headers||{})}});
+    if (res.status===401) { logout(); return null; }
+    return res;
+}
+function isLoggedIn() { return !!localStorage.getItem('dq_token'); }
+
+function showApp(username) {
+    $('auth-overlay').classList.add('hidden');
+    $('app').style.display = 'flex';
+    const userEl = $('sidebar-username');
+    if (userEl) userEl.textContent = username || 'User';
+    loadTables();
+    refreshKPIs();
+    showPage('page-dashboard');
+}
+
+function logout() {
+    localStorage.removeItem('dq_token');
+    localStorage.removeItem('dq_user');
+    $('auth-overlay').classList.remove('hidden');
+    $('app').style.display = 'none';
+    toast('Logged out.');
+}
+
+// ── Auth handlers ──────────────────────────────────────────────────────
+document.getElementById('tab-login').addEventListener('click', function() {
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('signup-form').style.display = 'none';
+    this.style.fontWeight = '600';
+    this.style.color = 'var(--primary)';
+    this.style.borderBottomColor = 'var(--primary)';
+    document.getElementById('tab-signup').style.fontWeight = '400';
+    document.getElementById('tab-signup').style.color = 'var(--text-muted)';
+    document.getElementById('tab-signup').style.borderBottomColor = 'transparent';
+});
+
+document.getElementById('tab-signup').addEventListener('click', function() {
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('signup-form').style.display = 'block';
+    this.style.fontWeight = '600';
+    this.style.color = 'var(--primary)';
+    this.style.borderBottomColor = 'var(--primary)';
+    document.getElementById('tab-login').style.fontWeight = '400';
+    document.getElementById('tab-login').style.color = 'var(--text-muted)';
+    document.getElementById('tab-login').style.borderBottomColor = 'transparent';
+});
+
+document.getElementById('login-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const errorEl = document.getElementById('login-error');
+    errorEl.style.display = 'none';
+    try {
+        const res = await fetch(`${BASE_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                username: document.getElementById('login-username').value,
+                password: document.getElementById('login-password').value
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errorEl.textContent = data.detail || 'Login failed';
+            errorEl.style.display = 'block';
+            return;
+        }
+        localStorage.setItem('dq_token', data.access_token);
+        localStorage.setItem('dq_user', JSON.stringify(data.user));
+        showApp(data.user.username);
+    } catch(err) {
+        errorEl.textContent = 'Cannot reach API server on port 8000';
+        errorEl.style.display = 'block';
+    }
+});
+
+document.getElementById('signup-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const errorEl = document.getElementById('signup-error');
+    errorEl.style.display = 'none';
+    try {
+        const res = await fetch(`${BASE_URL}/api/auth/signup`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                username: document.getElementById('su-username').value,
+                email: document.getElementById('su-email').value,
+                password: document.getElementById('su-password').value,
+                confirm_password: document.getElementById('su-confirm').value
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            const msg = Array.isArray(data.detail) ? data.detail.map(d=>d.msg).join(' | ') : data.detail;
+            errorEl.textContent = msg;
+            errorEl.style.display = 'block';
+            return;
+        }
+        localStorage.setItem('dq_token', data.access_token);
+        localStorage.setItem('dq_user', JSON.stringify(data.user));
+        showApp(data.user.username);
+        toast('Account created! Welcome.');
+    } catch(err) {
+        errorEl.textContent = 'Cannot reach API server on port 8000';
+        errorEl.style.display = 'block';
+    }
+});
+
+// ── Page navigation ──────────────────────────────────────────────────
+function showPage(pageId) {
+    document.querySelectorAll('.page-content').forEach(el => el.classList.remove('active'));
+    const target = $(pageId);
+    if (target) target.classList.add('active');
+    document.querySelectorAll('.nav-link').forEach(a => {
+        a.classList.remove('active');
+        if (a.dataset.page === pageId) a.classList.add('active');
+    });
+    if (pageId === 'page-upload') loadUploadedTables();
+    if (pageId === 'page-kpi') refreshKPIs();
+    if (pageId === 'page-explorer') loadTableDropdowns();
+    if (pageId === 'page-inventory') checkInventoryDataset();
+}
+
+// ── Quick Query ──────────────────────────────────────────────────────
+function quickQuery(question) {
+    const input = $('query-input');
+    if (input) {
+        input.value = question;
+        input.focus();
+        setTimeout(() => { const btn = $('get-answer-btn'); if (btn) btn.click(); }, 200);
+    }
+    showPage('page-dashboard');
+}
+
+// ── Format numbers ──────────────────────────────────────────────────
+function formatNumber(val) {
+    if (val === undefined || val === null || isNaN(val) || val === 0) return '--';
+    const num = typeof val === 'string' ? parseFloat(val) : val;
+    if (isNaN(num) || num === 0) return '--';
+    if (Math.abs(num) >= 1000) {
+        return num.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 0 });
+    }
+    if (Number.isInteger(num)) return num.toString();
+    return num.toFixed(2);
+}
+
+function formatCurrency(val) {
+    if (val === undefined || val === null || isNaN(val) || val === 0) return '$--';
+    const num = typeof val === 'string' ? parseFloat(val) : val;
+    if (isNaN(num) || num === 0) return '$--';
+    return '$' + formatNumber(num);
+}
+
+// ── Chart rendering ──────────────────────────────────────────────────
+function renderChart(canvasId, labels, data, label, type='bar') {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); delete chartInstances[canvasId]; }
+    const colors = ['#00685f','#008378','#6bd8cb','#89f5e7','#ffdbce','#ffb59a','#924628','#ba1a1a'];
+    const bgColors = labels.map((_,i) => colors[i % colors.length]);
+    const rootStyle = getComputedStyle(document.documentElement);
+    const primaryColor = rootStyle.getPropertyValue('--primary').trim() || '#00685f';
+    const textColor = rootStyle.getPropertyValue('--text-secondary').trim() || '#3d4947';
+    const gridColor = rootStyle.getPropertyValue('--border-light').trim() || '#eef0f2';
+    chartInstances[canvasId] = new Chart(ctx, {
+        type: type,
+        data: { labels: labels, datasets: [{ label: label, data: data, backgroundColor: bgColors, borderColor: primaryColor, borderWidth: 2 }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: type === 'pie', labels: { color: textColor } } },
+            scales: type === 'pie' ? {} : {
+                x: { ticks: { color: textColor }, grid: { color: gridColor } },
+                y: { ticks: { color: textColor }, grid: { color: gridColor } }
+            }
+        }
+    });
+    chartInstances[canvasId]._renderArgs = [canvasId, labels, data, label, type];
+}
+
+function renderABCAnalysis(columns, rows) {
+    const classIndex = columns.indexOf('ABC_Class');
+    const productIndex = columns.indexOf('Product');
+    const valueIndex = columns.findIndex(column => column.startsWith('Total_'));
+    if (classIndex < 0 || productIndex < 0 || valueIndex < 0) return false;
+
+    const palette = { A: '#2f7ed8', B: '#20ad7c', C: '#f2a500' };
+    const summaries = ['A', 'B', 'C'].map(className => {
+        const classRows = rows.filter(row => String(row[classIndex]) === className);
+        return {
+            className,
+            count: classRows.length,
+            value: classRows.reduce((sum, row) => sum + (Number(row[valueIndex]) || 0), 0),
+            rows: classRows
+        };
+    });
+    const grandTotal = summaries.reduce((sum, item) => sum + item.value, 0);
+    $('abc-summary').innerHTML = summaries.map(item => {
+        const percentage = grandTotal ? item.value / grandTotal * 100 : 0;
+        return `<div class="abc-card">
+            <div style="font-weight:600;">Class ${item.className} · ${item.count} products</div>
+            <div class="abc-card-value" style="color:${palette[item.className]};">${percentage.toFixed(1)}%</div>
+            <div style="color:var(--text-muted);">$${formatNumber(item.value)} of value</div>
+        </div>`;
+    }).join('');
+    $('abc-summary').style.display = 'grid';
+
+    // Six leading products from every class keeps the comparison readable
+    // while the full result remains available in the table below.
+    const chartRows = summaries.flatMap(item => item.rows.slice(0, 6));
+    const labels = chartRows.map(row => row[productIndex]);
+    const values = chartRows.map(row => Number(row[valueIndex]) || 0);
+    const colors = chartRows.map(row => palette[String(row[classIndex])] || '#64748b');
+    const canvas = $('inv-results-chart');
+    if (chartInstances['inv-results-chart']) chartInstances['inv-results-chart'].destroy();
+    $('inv-chart-container').style.height = `${Math.max(360, chartRows.length * 34)}px`;
+    chartInstances['inv-results-chart'] = new Chart(canvas, {
+        type: 'bar',
+        data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 5, barThickness: 22 }] },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: context => `$${formatNumber(context.raw)}` } }
+            },
+            scales: {
+                x: { beginAtZero: true, ticks: { callback: value => '$' + formatNumber(value), color: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() } },
+                y: { ticks: { color: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() }, grid: { display: false } }
+            }
+        }
+    });
+    $('inv-results-chart-wrap').style.display = 'block';
+    return true;
+}
+
+// ── Theme toggle ──────────────────────────────────────────────────────
+function rerenderChartsForTheme() {
+    Object.keys(chartInstances).forEach(id => {
+        const inst = chartInstances[id];
+        if (inst && inst._renderArgs) {
+            renderChart(...inst._renderArgs);
+        }
+    });
+}
+
+function toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    try { localStorage.setItem('dq_theme', next); } catch(_) {}
+    rerenderChartsForTheme();
+}
+
+// ── Parse API response ──────────────────────────────────────────────
+function parseResponse(text) {
+    const out = { sql: null, rows: null, headers: null, insight: null };
+    const sqlMatch = text.match(/```sql\s*([\s\S]*?)```/i) || text.match(/SQL used:\s*```\s*([\s\S]*?)```/i);
+    if (sqlMatch) out.sql = sqlMatch[1].trim();
+    const tableMatch = text.match(/\|(.+)\|\s*\n\|[-| :]+\|\s*\n((?:\|.+\|\s*\n?)+)/);
+    if (tableMatch) {
+        out.headers = tableMatch[1].split('|').map(h=>h.trim()).filter(Boolean);
+        out.rows = tableMatch[2].trim().split('\n').map(row => row.split('|').map(c=>c.trim()).filter(Boolean)).filter(r=>r.length>0);
+    }
+    const lines = text.split('\n');
+    let insightLines = [];
+    let inInsight = false;
+    for (const line of lines) {
+        if (line.toLowerCase().includes('insight') || line.toLowerCase().includes('analysis') || line.toLowerCase().includes('key business')) {
+            inInsight = true;
+            continue;
+        }
+        if (inInsight && line.trim() && !line.includes('SQL used') && !line.includes('```') && !line.includes('|')) {
+            insightLines.push(line.trim());
+        }
+        if (inInsight && line.trim() === '') continue;
+    }
+    if (insightLines.length > 0) {
+        out.insight = insightLines.join('\n');
+    } else {
+        out.insight = text.replace(/```[\s\S]*?```/g,'').replace(/\|.+\|/g,'').replace(/[-|:]{3,}/g,'').trim();
+        if (out.insight.length < 20) out.insight = null;
+    }
+    return out;
+}
+
+// ── Render result ──────────────────────────────────────────────────
+function renderResult(question, data) {
+    const parsed = parseResponse(data.response || '');
+
+    $('result-question').textContent = question;
+    $('result-provider').textContent = `via ${data.provider || 'AI'}`;
+    $('result-panel').style.display = 'block';
+
+
+    // ── SQL ────────────────────────────────────────────────────────
+    if (parsed.sql) {
+        $('result-sql').textContent = parsed.sql;
+        $('result-sql-wrap').style.display = 'block';
+    } else {
+        $('result-sql-wrap').style.display = 'none';
+    }
+
+
+    // ── DATA TABLE ─────────────────────────────────────────────────
+    if (
+        parsed.headers &&
+        parsed.rows &&
+        parsed.headers.length > 0 &&
+        parsed.rows.length > 0
+    ) {
+        const thead = $('result-thead');
+        const tbody = $('result-tbody');
+
+
+        // Table headers
+        thead.innerHTML =
+            '<tr>' +
+            parsed.headers.map(h =>
+                `<th style="
+                    text-align:left;
+                    padding:5px 10px;
+                    border-bottom:1px solid var(--border);
+                    font-weight:600;
+                    font-size:12px;
+                    color:var(--text-secondary);
+                ">${h}</th>`
+            ).join('') +
+            '</tr>';
+
+
+        // Table rows with formatted numbers
+        tbody.innerHTML = parsed.rows.map((row, rowIndex) => {
+
+            const background =
+                rowIndex % 2 === 0
+                    ? 'background:var(--drop-zone-bg);'
+                    : '';
+
+            const cells = row.map((cell, columnIndex) => {
+
+                const formattedValue = formatQueryValue(
+                    cell,
+                    parsed.headers[columnIndex]
+                );
+
+                return `
+                    <td style="
+                        padding:4px 10px;
+                        border-bottom:1px solid var(--border-light);
+                        font-size:13px;
+                    ">
+                        ${formattedValue}
+                    </td>
+                `;
+            }).join('');
+
+            return `<tr style="${background}">${cells}</tr>`;
+
+        }).join('');
+
+
+        $('result-table-wrap').style.display = 'block';
+
+
+        // ── CHART DETECTION ────────────────────────────────────────
+
+        const firstCol =
+            parsed.headers[0]?.toLowerCase() || '';
+
+
+        const isCategoryColumn =
+            firstCol.includes('month') ||
+            firstCol.includes('date') ||
+            firstCol.includes('year') ||
+            firstCol.includes('region') ||
+            firstCol.includes('category') ||
+            firstCol.includes('customer') ||
+            firstCol.includes('product') ||
+            firstCol.includes('segment') ||
+            firstCol.includes('state') ||
+            firstCol.includes('city');
+
+
+        const numericColumnIndexes =
+            parsed.headers
+                .map((header, index) => index)
+                .filter(index =>
+                    parsed.rows.some(row =>
+                        Number.isFinite(Number(row[index]))
+                    )
+                );
+
+
+        // Single row + single column = KPI result
+        const isSingleKPI =
+            parsed.rows.length === 1 &&
+            parsed.headers.length === 1;
+
+
+        // ── SINGLE KPI → NO CHART ──────────────────────────────────
+
+        if (isSingleKPI) {
+
+            $('result-chart-wrap').style.display = 'none';
+
+            if (chartInstances['result-chart']) {
+                chartInstances['result-chart'].destroy();
+                delete chartInstances['result-chart'];
+            }
+
+
+        // ── CATEGORY / TREND RESULT ────────────────────────────────
+
+        } else if (
+            isCategoryColumn &&
+            parsed.headers.length >= 2 &&
+            numericColumnIndexes.length >= 1 &&
+            parsed.rows.length > 1
+        ) {
+
+            const labels =
+                parsed.rows.map(row => row[0]);
+
+
+            // Find numeric column after label column
+            const valueColumnIndex =
+                numericColumnIndexes.find(index => index !== 0);
+
+
+            if (valueColumnIndex !== undefined) {
+
+                const dataValues =
+                    parsed.rows.map(row =>
+                        Number(row[valueColumnIndex]) || 0
+                    );
+
+
+                const chartType =
+                    firstCol.includes('month') ||
+                    firstCol.includes('date') ||
+                    firstCol.includes('year')
+                        ? 'line'
+                        : 'bar';
+
+
+                renderChart(
+                    'result-chart',
+                    labels,
+                    dataValues,
+                    parsed.headers[valueColumnIndex] || 'Value',
+                    chartType
+                );
+
+
+                $('result-chart-wrap').style.display = 'block';
+
+            } else {
+
+                $('result-chart-wrap').style.display = 'none';
+
+                if (chartInstances['result-chart']) {
+                    chartInstances['result-chart'].destroy();
+                    delete chartInstances['result-chart'];
+                }
+            }
+
+
+        // ── GENERIC TWO-COLUMN RESULT ──────────────────────────────
+
+        } else if (
+            parsed.headers.length >= 2 &&
+            parsed.rows.length > 1 &&
+            parsed.rows.length <= 20
+        ) {
+
+            const valueColumnIndex =
+                numericColumnIndexes.find(index => index !== 0);
+
+
+            if (valueColumnIndex !== undefined) {
+
+                const labels =
+                    parsed.rows.map(row => row[0]);
+
+
+                const dataValues =
+                    parsed.rows.map(row =>
+                        Number(row[valueColumnIndex]) || 0
+                    );
+
+
+                renderChart(
+                    'result-chart',
+                    labels,
+                    dataValues,
+                    parsed.headers[valueColumnIndex] || 'Value',
+                    'bar'
+                );
+
+
+                $('result-chart-wrap').style.display = 'block';
+
+            } else {
+
+                $('result-chart-wrap').style.display = 'none';
+
+                if (chartInstances['result-chart']) {
+                    chartInstances['result-chart'].destroy();
+                    delete chartInstances['result-chart'];
+                }
+            }
+
+
+        // ── NOT CHARTABLE ──────────────────────────────────────────
+
+        } else {
+
+            $('result-chart-wrap').style.display = 'none';
+
+            if (chartInstances['result-chart']) {
+                chartInstances['result-chart'].destroy();
+                delete chartInstances['result-chart'];
+            }
+        }
+
+
+    } else {
+
+        $('result-table-wrap').style.display = 'none';
+        $('result-chart-wrap').style.display = 'none';
+
+        if (chartInstances['result-chart']) {
+            chartInstances['result-chart'].destroy();
+            delete chartInstances['result-chart'];
+        }
+    }
+
+
+    // ── AI INSIGHT ─────────────────────────────────────────────────
+
+    if (parsed.insight) {
+
+        let html = parsed.insight;
+
+        html = html.replace(
+            /^#+\s+(.*)$/gm,
+            '<strong>$1</strong>'
+        );
+
+        html = html.replace(
+            /^-\s+(.*)$/gm,
+            '• $1'
+        );
+
+        html = html.replace(
+            /\n/g,
+            '<br>'
+        );
+
+        $('result-insight').innerHTML = html;
+        $('result-insight-wrap').style.display = 'block';
+
+    } else {
+
+        $('result-insight-wrap').style.display = 'none';
+    }
+
+
+    setTimeout(
+        () =>
+            $('result-panel').scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            }),
+
+        100
+    );
+}
+
+// ── Refresh KPIs ──────────────────────────────────────────────────
+async function refreshKPIs() {
+    try {
+        const res = await apiFetch('/api/kpi/all');
+        if (!res) return;
+        const data = await res.json();
+
+        if (data && !data.error) {
+            const kpiData = {
+                revenue: data.revenue || 0,
+                profit: data.profit || 0,
+                orders: data.orders || 0,
+                customers: data.customers || 0
+            };
+            _kpiCache = kpiData;
+            updateKPIDisplay(kpiData);
+        } else {
+            // Fallback to query
+            await refreshKPIsFallback();
+        }
+    } catch(err) {
+        if (_kpiCache) {
+            updateKPIDisplay(_kpiCache);
+        } else {
+            await refreshKPIsFallback();
+        }
+    }
+}
+
+async function refreshKPIsFallback() {
+    try {
+        const res = await apiFetch('/api/query', {
+            method: 'POST',
+            body: JSON.stringify({ question: 'Show me total revenue, total profit, total orders, and customer count' })
+        });
+        if (!res) return;
+        const data = await res.json();
+        const parsed = parseResponse(data.response || '');
+        if (parsed.rows && parsed.rows.length > 0) {
+            const row = parsed.rows[0];
+            const headers = parsed.headers || [];
+            let revenue=0, profit=0, orders=0, customers=0;
+            headers.forEach((h, i) => {
+                const val = parseFloat(row[i]) || 0;
+                const lower = h.toLowerCase();
+                if (lower.includes('revenue') || lower.includes('sales')) revenue = val;
+                else if (lower.includes('profit')) profit = val;
+                else if (lower.includes('order')) orders = val;
+                else if (lower.includes('customer')) customers = val;
+            });
+            const kpiData = { revenue, profit, orders, customers };
+            _kpiCache = kpiData;
+            updateKPIDisplay(kpiData);
+        }
+    } catch(err) {
+        toast('Could not fetch KPIs. Upload data first.');
+    }
+}
+
+function updateKPIDisplay(data) {
+    const { revenue, profit, orders, customers } = data;
+
+    // Dashboard cards
+    const revenueEl = $('kpi-revenue');
+    if (revenueEl) revenueEl.textContent = formatCurrency(revenue);
+    const profitEl = $('kpi-profit');
+    if (profitEl) profitEl.textContent = formatCurrency(profit);
+    const ordersEl = $('kpi-orders');
+    if (ordersEl) ordersEl.textContent = formatNumber(orders);
+    const customersEl = $('kpi-customers');
+    if (customersEl) customersEl.textContent = formatNumber(customers);
+
+    // KPI Dashboard page cards
+    const dRevenue = $('kpi-d-revenue');
+    if (dRevenue) dRevenue.textContent = formatCurrency(revenue);
+    const dProfit = $('kpi-d-profit');
+    if (dProfit) dProfit.textContent = formatCurrency(profit);
+    const dOrders = $('kpi-d-orders');
+    if (dOrders) dOrders.textContent = formatNumber(orders);
+    const dCustomers = $('kpi-d-customers');
+    if (dCustomers) dCustomers.textContent = formatNumber(customers);
+}
+
+// ── Load tables ──────────────────────────────────────────────────────
+async function loadTables() {
+    const res = await apiFetch('/api/tables');
+    if (!res || !res.ok) return;
+    const data = await res.json();
+    const badge = $('active-dataset-badge');
+    if (badge && data.active) badge.textContent = data.active || 'None';
+    const nameEl = $('sidebar-dataset-name');
+    if (nameEl) nameEl.textContent = data.active || 'None';
+    if (data.active) {
+        try {
+            const schemaRes = await apiFetch('/api/schema');
+            if (schemaRes && schemaRes.ok) {
+                const schema = await schemaRes.json();
+                const typeEl = $('sidebar-dataset-type');
+                if (typeEl) typeEl.textContent = `Type: ${schema.dataset_type?.replace('_',' ').title() || 'Unknown'}`;
+            }
+        } catch(_) {}
+    }
+    return data;
+}
+
+async function loadUploadedTables() {
+    const res = await apiFetch('/api/tables');
+    if (!res || !res.ok) return;
+    const data = await res.json();
+    const section = $('uploaded-tables-section');
+    const list = $('uploaded-tables-list');
+    if (!data.tables || data.tables.length === 0) { section.style.display='none'; return; }
+    section.style.display = 'block';
+    list.innerHTML = data.tables.map(t => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border-light);">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span class="material-symbols-outlined" style="color:var(--primary); font-size:18px;">table_chart</span>
+                <span style="font-size:13px;">${t}</span>
+                ${t === data.active ? '<span style="font-size:10px; padding:1px 8px; background:var(--surface-alt); border-radius:10px; color:var(--primary); font-weight:500;">Active</span>' : ''}
+            </div>
+            <button onclick="setActiveTable('${t}')" style="border:none; background:none; color:var(--primary); font-size:12px; cursor:pointer; font-weight:500;">Set active</button>
+        </div>`).join('');
+}
+
+async function setActiveTable(name) {
+    const res = await apiFetch('/api/tables/active', { method: 'POST', body: JSON.stringify({table_name: name}) });
+    if (res && res.ok) {
+        toast(`Active: ${name}`);
+        await loadTables();
+        await loadUploadedTables();
+        refreshKPIs();
+    }
+}
+
+async function loadTableDropdowns() {
+    const res = await apiFetch('/api/tables');
+    if (!res || !res.ok) return;
+    const data = await res.json();
+    const explorerSelect = $('explorer-table');
+    if (explorerSelect) {
+        explorerSelect.innerHTML = '<option value="">Select a table...</option>' +
+            (data.tables || []).map(t => `<option value="${t}">${t}</option>`).join('');
+        if (data.active) explorerSelect.value = data.active;
+        explorerSelect.onchange = function() {
+            if (this.value) {
+                $('explorer-query').value = `SELECT * FROM ${this.value} LIMIT 10`;
+            }
+        };
+    }
+}
+
+// ── Query handler ──────────────────────────────────────────────────
+document.getElementById('get-answer-btn').addEventListener('click', async function() {
+    const textarea = $('query-input');
+    const question = textarea.value.trim();
+    if (!question) { toast('Type a question.'); textarea.focus(); return; }
+
+    this.disabled = true;
+    this.style.opacity = '0.7';
+    this.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px; animation:spin 0.8s linear infinite;">refresh</span> Thinking...`;
+
+    try {
+        const res = await apiFetch('/api/query', { method: 'POST', body: JSON.stringify({ question }) });
+        if (!res) return;
+        const data = await res.json();
+        if (!res.ok) { toast(data.detail || 'Query failed.'); return; }
+        renderResult(question, data);
+        refreshKPIs();
+    } catch(err) { toast('Network error'); }
+    finally {
+        this.disabled = false;
+        this.style.opacity = '1';
+        this.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px;">auto_awesome</span> Get Answer`;
+    }
+});
+
+document.getElementById('query-input').addEventListener('keydown', function(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('get-answer-btn').click();
+    }
+});
+
+// ── Upload & Cleaning ──────────────────────────────────────────────────
+function handleDrop(e) {
+    e.preventDefault();
+    const zone = $('drop-zone');
+    zone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) previewFile(file);
+}
+
+function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) previewFile(file);
+}
+
+function previewFile(file) {
+    const allowed = ['csv','xlsx','xls','json','parquet'];
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) { toast('Unsupported file type.'); return; }
+    _selectedFile = file;
+    $('file-name').textContent = file.name;
+    $('file-size').textContent = `${(file.size/1024/1024).toFixed(2)} MB`;
+    const defaultName = file.name.replace(/\.[^.]+$/,'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+    $('table-name-input').value = defaultName;
+    $('file-preview').style.display = 'block';
+    $('upload-success').style.display = 'none';
+    $('upload-error').style.display = 'none';
+    $('cleaning-results').style.display = 'none';
+
+    // Show preview
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const lines = e.target.result.split('\n').slice(0, 6);
+            const data = lines.map(line => line.split(','));
+            if (data && data.length > 0) {
+                const headers = data[0];
+                const rows = data.slice(1, 6);
+                let html = '<table class="data-table"><thead><tr>';
+                headers.forEach(h => html += `<th>${h}</th>`);
+                html += '</tr></thead><tbody>';
+                rows.forEach(row => {
+                    html += '<tr>';
+                    row.forEach(cell => html += `<td>${cell || ''}</td>`);
+                    html += '</tr>';
+                });
+                html += '</tbody></table>';
+                $('data-preview-table').innerHTML = html;
+                $('data-preview-container').style.display = 'block';
+                $('preview-rows').textContent = data.length - 1;
+                $('preview-cols').textContent = headers.length;
+                const headerText = headers.join(' ').toLowerCase();
+                if (headerText.includes('stock') || headerText.includes('inventory')) {
+                    $('preview-dataset-type').textContent = '📦 Inventory';
+                } else if (headerText.includes('order') || headerText.includes('sales')) {
+                    $('preview-dataset-type').textContent = '📊 Sales';
+                } else {
+                    $('preview-dataset-type').textContent = '📋 General';
+                }
+            }
+        } catch(err) { $('data-preview-container').style.display = 'none'; }
+    };
+    if (file.name.endsWith('.csv')) { reader.readAsText(file); }
+}
+
+function clearFile() {
+    _selectedFile = null;
+    _cleanedData = null;
+    $('file-input').value = '';
+    $('file-preview').style.display = 'none';
+}
+
+async function runCleaning() {
+    if (!_selectedFile) { toast('No file selected.'); return; }
+    const btn = $('run-cleaning-btn');
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px; animation:spin 0.8s linear infinite;">refresh</span> Cleaning...`;
+
+    const formData = new FormData();
+    formData.append('file', _selectedFile);
+    formData.append('cleaning_level', 'advanced');
+
+    try {
+        const token = localStorage.getItem('dq_token');
+        const res = await fetch(`${BASE_URL}/api/clean`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) { toast(data.detail || 'Cleaning failed.'); return; }
+        _cleanedData = data;
+        $('cleaning-results').style.display = 'block';
+        $('clean-original-rows').textContent = data.original_rows || 0;
+        $('clean-cleaned-rows').textContent = data.cleaned_rows || 0;
+        $('clean-removed-rows').textContent = (data.original_rows || 0) - (data.cleaned_rows || 0);
+        $('clean-cols-added').textContent = data.columns_added || 0;
+        toast('✅ Cleaning completed!');
+    } catch(err) { toast('Network error during cleaning.'); }
+    finally {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px;">cleaning_services</span> Run`;
+    }
+}
+
+async function loadToDatabase() {
+    if (!_selectedFile) { toast('No file to upload.'); return; }
+    const tableName = $('table-name-input').value.trim();
+    if (!tableName) { toast('Enter a table name.'); return; }
+    if (!/^[a-z0-9_]+$/.test(tableName)) { toast('Lowercase letters, numbers, underscores only.'); return; }
+
+    const btn = $('load-to-db-btn');
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px; animation:spin 0.8s linear infinite;">refresh</span> Loading...`;
+
+    try {
+        const token = localStorage.getItem('dq_token');
+        const formData = new FormData();
+        formData.append('file', _selectedFile);
+        formData.append('table_name', tableName);
+
+        const res = await fetch(`${BASE_URL}/api/upload`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        if (!res) return;
+        const data = await res.json();
+        if (!res.ok) { toast(data.detail || 'Load failed.'); return; }
+        $('upload-success-msg').textContent = `✅ "${tableName}" loaded - ${data.rows || 0} rows`;
+        $('upload-success').style.display = 'flex';
+        toast(`✅ Dataset "${tableName}" ready!`);
+        await loadTables();
+        await loadUploadedTables();
+        refreshKPIs();
+        setTimeout(() => showPage('page-dashboard'), 1500);
+    } catch(err) { toast('Network error.'); }
+    finally {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px;">database</span> Load to Database`;
+    }
+}
+
+// ── SQL Chat ──────────────────────────────────────────────────────────
+function sendChatMessage() {
+    const input = $('chat-input');
+    const msg = input.value.trim();
+    if (!msg) { toast('Type a message.'); return; }
+    const messages = $('chat-messages');
+    messages.innerHTML += `
+        <div style="display:flex; gap:10px; justify-content:flex-end; margin-bottom:8px;">
+            <div style="background:var(--progress-bg); padding:8px 14px; border-radius:10px; max-width:80%;">
+                <div style="font-size:14px;">${msg}</div>
+            </div>
+            <span class="material-symbols-outlined" style="color:var(--text-secondary);">person</span>
+        </div>`;
+    input.value = '';
+    messages.scrollTop = messages.scrollHeight;
+    (async () => {
+        try {
+            const res = await apiFetch('/api/query', { method: 'POST', body: JSON.stringify({ question: msg }) });
+            if (!res) return;
+            const data = await res.json();
+            const parsed = parseResponse(data.response || '');
+            let reply = parsed.insight || 'I processed your query.';
+            if (parsed.rows && parsed.rows.length > 0) {
+                reply += '\n\n📊 Data sample:\n' + parsed.rows.slice(0, 5).map(r => '• ' + r.join(' | ')).join('\n');
+            }
+            messages.innerHTML += `
+                <div style="display:flex; gap:10px; margin-bottom:8px;">
+                    <span class="material-symbols-outlined" style="color:var(--primary);">assistant</span>
+                    <div style="background:var(--bg); padding:8px 14px; border-radius:10px; flex:1;">
+                        <div style="font-size:14px; white-space:pre-wrap;">${reply}</div>
+                    </div>
+                </div>`;
+            messages.scrollTop = messages.scrollHeight;
+        } catch(err) {
+            messages.innerHTML += `
+                <div style="display:flex; gap:10px; margin-bottom:8px;">
+                    <span class="material-symbols-outlined" style="color:var(--primary);">assistant</span>
+                    <div style="background:var(--danger-bg); padding:8px 14px; border-radius:10px; flex:1; color:var(--danger);">
+                        <div style="font-size:14px;">Sorry, I couldn't process that. Please try again.</div>
+                    </div>
+                </div>`;
+        }
+    })();
+}
+
+// ── KPI Analysis ──────────────────────────────────────────────────────
+async function runAnalysis(analysisType) {
+    const resultsDiv = $('analysis-results');
+    resultsDiv.style.display = 'block';
+    $('analysis-title').textContent = analysisType;
+    $('analysis-table-wrap').innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted);">Loading...</div>';
+    $('analysis-chart-wrap').style.display = 'none';
+
+    try {
+        const res = await apiFetch('/api/query', {
+            method: 'POST',
+            body: JSON.stringify({ question: analysisType })
+        });
+        if (!res) return;
+        const data = await res.json();
+        const parsed = parseResponse(data.response || '');
+
+        if (parsed.rows && parsed.rows.length > 0) {
+            let html = '<table class="data-table"><thead><tr>';
+            parsed.headers.forEach(h => html += `<th>${h}</th>`);
+            html += '</tr></thead><tbody>';
+            parsed.rows.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => html += `<td>${cell}</td>`);
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            $('analysis-table-wrap').innerHTML = html;
+
+            const firstCol = parsed.headers[0]?.toLowerCase() || '';
+            const isDate = firstCol.includes('month') || firstCol.includes('date') || firstCol.includes('year');
+            const numCols = parsed.headers.filter((h,i) => !isNaN(parseFloat(parsed.rows[0]?.[i]))).length;
+            if (isDate && numCols >= 1 && parsed.rows.length > 1) {
+                const labels = parsed.rows.map(r => r[0]);
+                const dataValues = parsed.rows.map(r => parseFloat(r[1]) || 0);
+                renderChart('analysis-chart', labels, dataValues, parsed.headers[1] || 'Value', 'line');
+                $('analysis-chart-wrap').style.display = 'block';
+            } else if (numCols >= 1 && parsed.rows.length <= 20) {
+                const labels = parsed.rows.map(r => r[0]);
+                const dataValues = parsed.rows.map(r => parseFloat(r[1]) || 0);
+                renderChart('analysis-chart', labels, dataValues, parsed.headers[1] || 'Value', 'bar');
+                $('analysis-chart-wrap').style.display = 'block';
+            }
+        } else {
+            $('analysis-table-wrap').innerHTML = '<div style="padding:14px; color:var(--text-muted); text-align:center;">No data found for this analysis.</div>';
+        }
+    } catch(err) {
+        $('analysis-table-wrap').innerHTML = '<div style="padding:14px; color:var(--danger);">Error running analysis.</div>';
+    }
+}
+
+// ── Inventory Analytics ──────────────────────────────────────────────
+async function checkInventoryDataset() {
+    try {
+        const res = await apiFetch('/api/schema');
+        if (!res || !res.ok) return;
+        const schema = await res.json();
+        const isInventory = schema.dataset_type === 'inventory_management';
+        if (isInventory) {
+            $('inventory-warning').style.display = 'none';
+            $('inventory-content').style.display = 'block';
+            await loadInventoryMetrics();
+        } else {
+            $('inventory-warning').style.display = 'block';
+            $('inventory-content').style.display = 'none';
+        }
+    } catch(_) {}
+}
+
+async function loadInventoryMetrics() {
+    try {
+        const res = await apiFetch('/api/inventory/metrics');
+        if (!res || !res.ok) return;
+        const data = await res.json();
+        if (data && !data.error) {
+            const ids = ['inv-total-stock', 'inv-total-value', 'inv-low-stock', 'inv-out-stock'];
+            const keys = ['total_stock', 'inventory_value', 'low_stock', 'out_of_stock'];
+            keys.forEach((key, i) => {
+                const el = $(ids[i]);
+                if (el) {
+                    const val = data[key] || 0;
+                    el.textContent = key === 'inventory_value' ? '$' + formatNumber(val) : formatNumber(val);
+                }
+            });
+        }
+    } catch(_) {}
+}
+
+async function runInventoryAnalysis() {
+    const type = $('inventory-analysis-type').value;
+    const resultsDiv = $('inventory-results');
+    resultsDiv.style.display = 'block';
+    $('inv-results-table-wrap').innerHTML = '<div style="padding:14px; text-align:center; color:var(--text-muted);">Loading...</div>';
+    $('inv-results-chart-wrap').style.display = 'none';
+    $('abc-summary').style.display = 'none';
+    $('abc-summary').innerHTML = '';
+    $('inv-chart-container').style.height = '220px';
+
+    try {
+        // Calls the predefined agent.inventory_analysis()/abc_analysis()
+        // SQL builders directly -- no LLM involved, so results are
+        // consistent and don't depend on the model guessing correct SQL.
+        const res = await apiFetch('/api/inventory/analysis', {
+            method: 'POST',
+            body: JSON.stringify({ analysis_type: type })
+        });
+        if (!res) return;
+        const data = await res.json();
+
+        if (!res.ok) {
+            $('inv-results-table-wrap').innerHTML = `<div style="padding:14px; color:var(--danger);">${data.detail || 'Error running analysis.'}</div>`;
+            return;
+        }
+
+        if (data.message && (!data.rows || data.rows.length === 0)) {
+            $('inv-results-table-wrap').innerHTML = `<div style="padding:14px; color:var(--text-muted); text-align:center;">${data.message}</div>`;
+            return;
+        }
+
+        if (data.rows && data.rows.length > 0) {
+            let html = '<table class="data-table"><thead><tr>';
+            data.columns.forEach(h => html += `<th>${h}</th>`);
+            html += '</tr></thead><tbody>';
+            data.rows.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => html += `<td>${cell === null ? '' : cell}</td>`);
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            $('inv-results-table-wrap').innerHTML = html;
+
+            const isABC = type === 'abc_classification' && renderABCAnalysis(data.columns, data.rows);
+            const numCols = data.columns.filter((h, i) => typeof data.rows[0]?.[i] === 'number').length;
+            if (!isABC && numCols >= 1 && data.rows.length <= 20) {
+                const labels = data.rows.map(r => r[0]);
+                const dataValues = data.rows.map(r => parseFloat(r[1]) || 0);
+                const chartType = type === 'stock_status' ? 'pie' : 'bar';
+                renderChart('inv-results-chart', labels, dataValues, data.columns[1] || 'Value', chartType);
+                $('inv-results-chart-wrap').style.display = 'block';
+            }
+        } else {
+            $('inv-results-table-wrap').innerHTML = '<div style="padding:14px; color:var(--text-muted); text-align:center;">No data found.</div>';
+        }
+    } catch(err) {
+        $('inv-results-table-wrap').innerHTML = '<div style="padding:14px; color:var(--danger);">Error running analysis.</div>';
+    }
+}
+
+// ── Data Explorer ────────────────────────────────────────────────────
+async function runExplorerQuery() {
+    const query = $('explorer-query').value.trim();
+    if (!query) { toast('Enter a SQL query.'); return; }
+    const resultsDiv = $('explorer-results');
+    resultsDiv.style.display = 'block';
+    resultsDiv.innerHTML = '<div style="padding:14px; text-align:center; color:var(--text-muted);">Running query...</div>';
+    try {
+        const res = await apiFetch('/api/query', {
+            method: 'POST',
+            body: JSON.stringify({ question: query })
+        });
+        if (!res) return;
+        const data = await res.json();
+        const parsed = parseResponse(data.response || '');
+        if (parsed.rows && parsed.rows.length > 0) {
+            let html = `<div style="font-size:12px; color:var(--text-muted); margin-bottom:6px;">${parsed.rows.length} rows</div><table class="data-table"><thead><tr>`;
+            parsed.headers.forEach(h => html += `<th>${h}</th>`);
+            html += '</tr></thead><tbody>';
+            parsed.rows.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => html += `<td>${cell}</td>`);
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            resultsDiv.innerHTML = html;
+        } else {
+            resultsDiv.innerHTML = '<div style="padding:14px; color:var(--text-muted); text-align:center;">Query returned no results.</div>';
+        }
+    } catch(err) {
+        resultsDiv.innerHTML = '<div style="padding:14px; color:var(--danger);">Error executing query.</div>';
+    }
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────
+if (isLoggedIn()) {
+    try {
+        const user = JSON.parse(localStorage.getItem('dq_user')||'{}');
+        showApp(user.username||'');
+    } catch(_) { logout(); }
+}
+</script>
+</body>
+</html>
