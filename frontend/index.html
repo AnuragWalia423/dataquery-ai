@@ -208,18 +208,26 @@
                 <div id="sidebar-dataset-name" style="font-size:13px; font-weight:600; color:var(--text);">None</div>
                 <div id="sidebar-dataset-type" style="font-size:11px; color:var(--text-muted);">Type: Unknown</div>
             </div>
-            <div class="sidebar-section">
+            <div class="sidebar-section" id="sidebar-sales-section">
                 <h4>Sales Questions</h4>
                 <button class="sidebar-btn" onclick="quickQuery('What are the top 5 customers by revenue?')"><span class="material-symbols-outlined">trending_up</span> Top 5 customers</button>
                 <button class="sidebar-btn" onclick="quickQuery('Show me total sales by region')"><span class="material-symbols-outlined">map</span> Sales by region</button>
                 <button class="sidebar-btn" onclick="quickQuery('Show me monthly sales trend')"><span class="material-symbols-outlined">trending_up</span> Monthly sales trend</button>
             </div>
-            <div class="sidebar-section">
+            <div class="sidebar-section" id="sidebar-kpi-section">
                 <h4>KPI Shortcuts</h4>
                 <button class="sidebar-btn" onclick="quickQuery('Total Revenue')"><span class="material-symbols-outlined">payments</span> Total Revenue</button>
                 <button class="sidebar-btn" onclick="quickQuery('Total Profit')"><span class="material-symbols-outlined">trending_up</span> Total Profit</button>
                 <button class="sidebar-btn" onclick="quickQuery('Total Orders')"><span class="material-symbols-outlined">receipt_long</span> Total Orders</button>
                 <button class="sidebar-btn" onclick="quickQuery('Total Customers')"><span class="material-symbols-outlined">people</span> Total Customers</button>
+            </div>
+            <div class="sidebar-section" id="sidebar-inventory-section" style="display:none;">
+                <h4>Inventory Questions</h4>
+                <button class="sidebar-btn" onclick="quickInventoryAnalysis('stock_status')"><span class="material-symbols-outlined">inventory_2</span> Stock status</button>
+                <button class="sidebar-btn" onclick="quickInventoryAnalysis('turnover_analysis')"><span class="material-symbols-outlined">trending_up</span> Turnover analysis</button>
+                <button class="sidebar-btn" onclick="quickInventoryAnalysis('supplier_analysis')"><span class="material-symbols-outlined">local_shipping</span> Supplier breakdown</button>
+                <button class="sidebar-btn" onclick="quickInventoryAnalysis('reorder_analysis')"><span class="material-symbols-outlined">restart_alt</span> Reorder analysis</button>
+                <button class="sidebar-btn" onclick="quickInventoryAnalysis('abc_classification')"><span class="material-symbols-outlined">category</span> ABC classification</button>
             </div>
             <button class="nav-link" style="width:100%; margin-top:8px;" onclick="logout()"><span class="material-symbols-outlined">logout</span> Logout</button>
         </div>
@@ -733,6 +741,21 @@ function quickQuery(question) {
         setTimeout(() => { const btn = $('get-answer-btn'); if (btn) btn.click(); }, 200);
     }
     showPage('page-dashboard');
+}
+
+// Inventory sidebar shortcuts go straight to /api/inventory/analysis (the
+// same fixed SQL builders the Inventory Analytics dropdown uses) instead of
+// quickQuery()'s free-text -> LLM path, so there's no risk of a sales-style
+// question ("top customers") getting silently reinterpreted against
+// inventory columns like supplier/turnover.
+function quickInventoryAnalysis(analysisType) {
+    showPage('page-inventory');
+    const select = $('inventory-analysis-type');
+    if (select) select.value = analysisType;
+    // checkInventoryDataset() (called by showPage above) re-renders the
+    // inventory-warning/inventory-content toggle asynchronously, so give it
+    // a moment before triggering the analysis run.
+    setTimeout(() => { if ($('inventory-content').style.display !== 'none') runInventoryAnalysis(); }, 300);
 }
 
 // ── Format numbers ──────────────────────────────────────────────────
@@ -1275,15 +1298,43 @@ async function loadTables() {
     if (badge && data.active) badge.textContent = data.active || 'None';
     const nameEl = $('sidebar-dataset-name');
     if (nameEl) nameEl.textContent = data.active || 'None';
+
+    const salesSection = $('sidebar-sales-section');
+    const kpiSection = $('sidebar-kpi-section');
+    const inventorySection = $('sidebar-inventory-section');
+
     if (data.active) {
         try {
             const schemaRes = await apiFetch('/api/schema');
             if (schemaRes && schemaRes.ok) {
                 const schema = await schemaRes.json();
                 const typeEl = $('sidebar-dataset-type');
-                if (typeEl) typeEl.textContent = `Type: ${schema.dataset_type?.replace('_',' ').title() || 'Unknown'}`;
+                // .title() is a Python string method, not JS -- this was
+                // throwing silently inside the try/catch below on every
+                // load, so the "Type: ..." label never actually updated.
+                const readableType = (schema.dataset_type || 'unknown')
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, c => c.toUpperCase());
+                if (typeEl) typeEl.textContent = `Type: ${readableType}`;
+
+                // Only show the sidebar's quick-question set that actually
+                // matches the loaded dataset -- otherwise a sales-style
+                // question run against inventory columns (or vice versa)
+                // gets silently reinterpreted by the LLM against whatever
+                // columns exist, producing a plausible-looking but
+                // misleading answer instead of an obvious error.
+                const isInventory = schema.dataset_type === 'inventory_management';
+                if (salesSection) salesSection.style.display = isInventory ? 'none' : '';
+                if (kpiSection) kpiSection.style.display = isInventory ? 'none' : '';
+                if (inventorySection) inventorySection.style.display = isInventory ? '' : 'none';
             }
         } catch(_) {}
+    } else {
+        // No active dataset yet -- show the general sales/KPI shortcuts by
+        // default rather than leaving all sections hidden.
+        if (salesSection) salesSection.style.display = '';
+        if (kpiSection) kpiSection.style.display = '';
+        if (inventorySection) inventorySection.style.display = 'none';
     }
     return data;
 }
