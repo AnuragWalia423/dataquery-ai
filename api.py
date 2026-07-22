@@ -4,6 +4,7 @@
 import io
 import os
 import logging
+import re
 import threading
 import time
 from collections import defaultdict, deque
@@ -12,6 +13,9 @@ import json
 
 import pandas as pd
 import numpy as np
+import sqlparse
+from sqlparse.sql import Identifier, IdentifierList, Parenthesis
+from sqlparse.tokens import Keyword
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -23,7 +27,7 @@ from auth import (
     init_auth_db, create_user, authenticate_user,
     create_access_token, decode_token,
     scoped_table_name, strip_user_prefix, filter_user_tables,
-    user_has_uploaded_filename, register_uploaded_dataset,
+    user_has_uploaded_filename, register_uploaded_dataset, user_table_prefix,
 )
 from models import UserCreate, UserLogin, UserPublic, TokenData
 from database_connection import DatabaseConnection
@@ -146,6 +150,25 @@ def get_scoped_agent(
         remembered = _user_active_dataset.get(current_user.user_id)
         if remembered:
             agent.current_dataset = remembered
+        else:
+            # No explicit choice recorded for this user yet (e.g. right
+            # after upload, since /api/upload doesn't auto-activate).
+            # Previously this branch did nothing, leaving agent.current_dataset
+            # holding whatever a DIFFERENT user's prior request set it to --
+            # a real cross-user data leak, not just a cosmetic display bug.
+            # /api/tables separately guessed a fallback (display[0]) purely
+            # for what the sidebar SHOWS, but never persisted that guess here,
+            # so the sidebar and the actual query engine could silently
+            # disagree about which dataset was "active". Fix: establish a
+            # real default now and persist it, so every endpoint -- sidebar
+            # display included -- agrees on the same table from this point on.
+            all_tables = agent._get_available_tables()
+            user_tables = filter_user_tables(current_user.user_id, all_tables)
+            if user_tables:
+                agent.current_dataset = user_tables[0]
+                _user_active_dataset[current_user.user_id] = user_tables[0]
+            else:
+                agent.current_dataset = None
     return agent
 
 
@@ -166,6 +189,164 @@ def get_db() -> DatabaseConnection:
             detail="Database connection is not available.",
         )
     return _db
+
+
+_EXPLORER_SQL_START_RE = re.compile(r"^\s*(SELECT|WITH)\b", re.IGNORECASE)
+_TABLE_CLAUSE_END_KEYWORDS = {
+    "WHERE",
+    "GROUP BY",
+    "ORDER BY",
+    "HAVING",
+    "LIMIT",
+    "OFFSET",
+    "UNION",
+    "EXCEPT",
+    "INTERSECT",
+    "ON",
+    "USING",
+    "WINDOW",
+    "QUALIFY",
+}
+
+
+def _clean_sql_identifier(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    value = value.strip().strip("`\"[]")
+    if "." in value:
+        value = value.rsplit(".", 1)[-1].strip().strip("`\"[]")
+    return value or None
+
+
+def _extract_cte_names(statement) -> set:
+    """Return CTE aliases so table-scope checks do not treat them as DB tables."""
+    cte_names = set()
+    saw_with = False
+
+    for token in statement.tokens:
+        if token.is_whitespace:
+            continue
+
+        normalized = token.normalized.upper()
+        if not saw_with:
+            if normalized == "WITH":
+                saw_with = True
+                continue
+            return cte_names
+
+        if normalized == "SELECT":
+            return cte_names
+
+        if isinstance(token, IdentifierList):
+            for identifier in token.get_identifiers():
+                name = _clean_sql_identifier(identifier.get_name())
+                if name:
+                    cte_names.add(name)
+            return cte_names
+
+        if isinstance(token, Identifier):
+            name = _clean_sql_identifier(token.get_name())
+            if name:
+                cte_names.add(name)
+            continue
+
+    return cte_names
+
+
+def _identifier_has_subquery(identifier: Identifier) -> bool:
+    for token in identifier.tokens:
+        if isinstance(token, Parenthesis):
+            inside = token.value[1:-1]
+            if _EXPLORER_SQL_START_RE.match(inside):
+                return True
+    return False
+
+
+def _add_identifier_table_refs(token, table_refs: set) -> None:
+    if isinstance(token, IdentifierList):
+        for identifier in token.get_identifiers():
+            _add_identifier_table_refs(identifier, table_refs)
+        return
+
+    if isinstance(token, Identifier):
+        if _identifier_has_subquery(token):
+            _collect_table_refs(token, table_refs)
+            return
+        name = _clean_sql_identifier(token.get_real_name())
+        if name:
+            table_refs.add(name)
+        return
+
+    name = _clean_sql_identifier(getattr(token, "value", None))
+    if name and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+        table_refs.add(name)
+
+
+def _collect_table_refs(token_list, table_refs: set) -> None:
+    expect_table = False
+
+    for token in token_list.tokens:
+        if token.is_whitespace:
+            continue
+
+        normalized = token.normalized.upper()
+        is_join = token.ttype in Keyword and normalized.endswith("JOIN")
+
+        if expect_table:
+            if token.ttype in Keyword and not is_join:
+                if normalized in _TABLE_CLAUSE_END_KEYWORDS:
+                    expect_table = False
+                continue
+
+            if isinstance(token, (Identifier, IdentifierList)):
+                _add_identifier_table_refs(token, table_refs)
+                expect_table = False
+                continue
+
+            if isinstance(token, Parenthesis):
+                _collect_table_refs(token, table_refs)
+                expect_table = False
+                continue
+
+        if token.ttype in Keyword and (normalized == "FROM" or is_join):
+            expect_table = True
+            continue
+
+        if token.is_group:
+            _collect_table_refs(token, table_refs)
+
+
+def _extract_table_refs(query: str) -> set:
+    statements = [statement for statement in sqlparse.parse(query) if statement.tokens]
+    if len(statements) != 1:
+        raise HTTPException(status_code=400, detail="Only one SQL statement is allowed.")
+
+    table_refs = set()
+    _collect_table_refs(statements[0], table_refs)
+    return table_refs - _extract_cte_names(statements[0])
+
+
+def _assert_explorer_query_is_tenant_scoped(
+        query: str,
+        current_user: TokenData,
+        agent: EnhancedSQLAgent,
+) -> None:
+    if not _EXPLORER_SQL_START_RE.match(query):
+        raise HTTPException(status_code=400, detail="Explorer only allows SELECT/WITH queries.")
+
+    user_tables = set(filter_user_tables(current_user.user_id, agent._get_available_tables()))
+    referenced_tables = _extract_table_refs(query)
+    unauthorized = sorted(table for table in referenced_tables if table not in user_tables)
+
+    if unauthorized:
+        prefix = user_table_prefix(current_user.user_id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Query references tables outside your account scope: "
+                f"{', '.join(unauthorized)}. Allowed tables must belong to prefix '{prefix}'."
+            ),
+        )
 
 
 # ── Simple safe converter ──────────────────────────────────────────────────
@@ -211,6 +392,12 @@ def _safe_int(value, default=0) -> int:
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
+def _round_sql(expression: str, places: int = 2) -> str:
+    if getattr(_db, "db_type", "sqlite") == "postgresql":
+        return f"ROUND(({expression})::numeric, {places})"
+    return f"ROUND({expression}, {places})"
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -302,9 +489,16 @@ def list_tables(
         user_tables = filter_user_tables(current_user.user_id, all_tables)
         display = [strip_user_prefix(current_user.user_id, t) for t in user_tables]
         current = strip_user_prefix(current_user.user_id, agent.current_dataset or "")
+        # get_scoped_agent() now guarantees agent.current_dataset is either
+        # None or one of THIS user's own tables (it establishes and persists
+        # a real default rather than leaving stale/cross-user state), so
+        # `current` should always be in `display` here. The `else None`
+        # fallback is only a defensive backstop, not an independent guess --
+        # this used to fall back to display[0], which could silently show a
+        # different table than the one /api/query was actually using.
         return {
             "tables": display,
-            "active": current if current in display else (display[0] if display else None),
+            "active": current if current in display else None,
         }
     except Exception as e:
         logger.error(f"List tables error: {e}")
@@ -570,10 +764,12 @@ def get_all_kpis(
             queries = {}
 
             if mapping.get('sales'):
-                queries['revenue'] = f"SELECT ROUND(SUM({mapping['sales']}), 2) as revenue FROM {table}"
+                sales_col = mapping['sales']
+                queries['revenue'] = f"SELECT {_round_sql(f'SUM({sales_col})')} as revenue FROM {table}"
 
             if mapping.get('profit'):
-                queries['profit'] = f"SELECT ROUND(SUM({mapping['profit']}), 2) as profit FROM {table}"
+                profit_col = mapping['profit']
+                queries['profit'] = f"SELECT {_round_sql(f'SUM({profit_col})')} as profit FROM {table}"
 
             if mapping.get('order_id'):
                 queries['orders'] = f"SELECT COUNT(DISTINCT {mapping['order_id']}) as orders FROM {table}"
@@ -781,8 +977,10 @@ def run_inventory_analysis(
             agent.current_dataset = _user_active_dataset.get(current_user.user_id, agent.current_dataset)
             if req.analysis_type == "abc_classification":
                 df = agent.abc_analysis(criteria=req.criteria or "value")
+                summary_df = agent.abc_class_summary(criteria=req.criteria or "value")
             else:
                 df = agent.inventory_analysis(req.analysis_type)
+                summary_df = None
     except Exception as e:
         logger.error(f"Inventory analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -798,7 +996,21 @@ def run_inventory_analysis(
         return {"columns": [], "rows": [], "message": str(df.iloc[0, 0])}
 
     safe_df = df.astype(object).where(pd.notnull(df), None)
-    return {"columns": df.columns.tolist(), "rows": safe_df.values.tolist()}
+    result = {"columns": df.columns.tolist(), "rows": safe_df.values.tolist()}
+
+    # class_summary is computed via its own GROUP BY query (cheaper than
+    # summing/counting the full per-product detail rows client-side) with
+    # the same true totals either way, since abc_analysis()'s detail rows
+    # are no longer capped. The frontend uses class_summary for the summary
+    # cards/class-level chart, and the detail rows for the "top
+    # contributors" breakdown.
+    if summary_df is not None and not summary_df.empty and list(summary_df.columns) != ["message"]:
+        safe_summary = summary_df.astype(object).where(pd.notnull(summary_df), None)
+        result["class_summary"] = [
+            dict(zip(summary_df.columns.tolist(), row)) for row in safe_summary.values.tolist()
+        ]
+
+    return result
 
 
 # ── Data Explorer endpoint ────────────────────────────────────────────────────
@@ -820,6 +1032,8 @@ async def run_explorer_query(
 
     if not agent.current_dataset:
         raise HTTPException(status_code=400, detail="No active dataset. Please load a dataset first.")
+
+    _assert_explorer_query_is_tenant_scoped(query, current_user, agent)
 
     try:
         result = _db.execute_query(query)

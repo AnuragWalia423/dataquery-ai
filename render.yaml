@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: dataquery-ai
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/status
+    envVars:
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DEFAULT_DATABASE
+        value: sqlite
+      - key: AUTH_DB_PATH
+        value: /data/auth_users.db
+      - key: SQLITE_DATABASE
+        value: /data/uploaded_dataset.db
+      - key: UPLOAD_DIR
+        value: /data/uploads
+      - key: DEFAULT_PROVIDER
+        value: groq
+      - key: FALLBACK_PROVIDER
+        value: gemini
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+

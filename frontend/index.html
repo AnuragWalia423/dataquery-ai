@@ -473,8 +473,9 @@
                         <div id="inventory-results" style="display:none; margin-top:14px;">
                             <div style="display:flex; justify-content:flex-end; margin-bottom:8px;"><button class="pdf-btn" onclick="downloadElementPDF('inventory-results', 'inventory-analysis')"><span class="material-symbols-outlined" style="font-size:16px;">picture_as_pdf</span> Download PDF</button></div>
                             <div id="abc-summary" class="abc-summary" style="display:none;"></div>
+                            <div id="abc-class-chart-wrap" style="display:none; margin-bottom:14px;"><div class="chart-container" style="height:220px;"><canvas id="abc-class-chart"></canvas></div></div>
+                            <div id="inv-results-chart-wrap" style="display:none; margin-bottom:10px;"><div class="chart-container" id="inv-chart-container" style="height:220px;"><canvas id="inv-results-chart"></canvas></div></div>
                             <div id="inv-results-table-wrap" style="overflow-x:auto;"></div>
-                            <div id="inv-results-chart-wrap" style="display:none; margin-top:10px;"><div class="chart-container" id="inv-chart-container" style="height:220px;"><canvas id="inv-results-chart"></canvas></div></div>
                         </div>
                     </div>
                 </div>
@@ -527,8 +528,19 @@ async function downloadElementPDF(elementId, filename) {
     buttons.forEach(button => button.style.visibility = 'hidden');
     try {
         toast('Preparing PDF...');
+        // Browsers cap canvas dimensions (commonly ~16,384px in Chrome/Firefox).
+        // A fixed scale:2 works fine for normal-sized panels, but a panel
+        // containing a long, uncapped table (e.g. ABC classification with
+        // hundreds/thousands of rows) can push scale*elementHeight past that
+        // limit, which makes html2canvas throw outright rather than produce
+        // a partial image. Scale down proportionally for tall panels instead
+        // of always using a fixed scale, so large tables degrade to a lower
+        // (still legible) resolution rather than failing to export at all.
+        const MAX_CANVAS_DIMENSION = 14000; // stay safely under browser limits
+        const elementHeight = element.scrollHeight || element.offsetHeight || 1;
+        const safeScale = Math.max(0.5, Math.min(2, MAX_CANVAS_DIMENSION / elementHeight));
         const canvas = await html2canvas(element, {
-            scale: 2,
+            scale: safeScale,
             useCORS: true,
             backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#ffffff'
         });
@@ -559,7 +571,10 @@ async function downloadElementPDF(elementId, filename) {
         toast('PDF downloaded.');
     } catch (error) {
         console.error('PDF export failed:', error);
-        toast('Could not create the PDF.');
+        const tooLarge = (element.scrollHeight || 0) > 20000;
+        toast(tooLarge
+            ? 'This result is too large to export as one PDF. Try filtering to fewer rows.'
+            : 'Could not create the PDF.');
     } finally {
         buttons.forEach(button => button.style.visibility = '');
     }
@@ -804,36 +819,99 @@ function renderChart(canvasId, labels, data, label, type='bar') {
     chartInstances[canvasId]._renderArgs = [canvasId, labels, data, label, type];
 }
 
-function renderABCAnalysis(columns, rows) {
-    const classIndex = columns.indexOf('ABC_Class');
-    const productIndex = columns.indexOf('Product');
-    const valueIndex = columns.findIndex(column => column.startsWith('Total_'));
+function renderABCAnalysis(columns, rows, classSummary) {
+    // Case-insensitive lookup: SQLite preserves whatever case the SQL alias
+    // was written in (e.g. "ABC_Class" stays "ABC_Class"), but Postgres
+    // silently lowercases unquoted identifiers, so the same query returns
+    // "abc_class" there instead. Matching on exact case broke this entire
+    // chart the moment the backend switched from SQLite to Postgres, even
+    // though nothing in the SQL itself changed.
+    const findCol = (predicate) => columns.findIndex(c => predicate(String(c).toLowerCase()));
+    const classIndex = findCol(c => c === 'abc_class');
+    const productIndex = findCol(c => c === 'product');
+    const valueIndex = findCol(c => c.startsWith('total_'));
     if (classIndex < 0 || productIndex < 0 || valueIndex < 0) return false;
 
-    const palette = { A: '#2f7ed8', B: '#20ad7c', C: '#f2a500' };
-    const summaries = ['A', 'B', 'C'].map(className => {
-        const classRows = rows.filter(row => String(row[classIndex]) === className);
-        return {
-            className,
-            count: classRows.length,
-            value: classRows.reduce((sum, row) => sum + (Number(row[valueIndex]) || 0), 0),
-            rows: classRows
-        };
-    });
-    const grandTotal = summaries.reduce((sum, item) => sum + item.value, 0);
-    $('abc-summary').innerHTML = summaries.map(item => {
-        const percentage = grandTotal ? item.value / grandTotal * 100 : 0;
-        return `<div class="abc-card">
-            <div style="font-weight:600;">Class ${item.className} · ${item.count} products</div>
-            <div class="abc-card-value" style="color:${palette[item.className]};">${percentage.toFixed(1)}%</div>
+    const palette = { A: '#3b82f6', B: '#10b981', C: '#f59e0b' };
+
+    // Prefer the backend's class_summary (a dedicated GROUP BY query, no
+    // per-product join needed) over deriving totals from the detail rows.
+    // Both are accurate now that abc_analysis() no longer caps detail rows
+    // to 50-per-class -- this fallback exists only in case an older cached
+    // response doesn't include class_summary yet.
+    let summaries;
+    if (Array.isArray(classSummary) && classSummary.length > 0) {
+        summaries = classSummary.map(entry => ({
+            className: entry.ABC_Class ?? entry.abc_class,
+            count: Number(entry.Product_Count ?? entry.product_count) || 0,
+            value: Number(entry.Total_Value ?? entry.total_value) || 0,
+            pct: Number(entry.Pct_Of_Total ?? entry.pct_of_total) || 0,
+        }));
+    } else {
+        summaries = ['A', 'B', 'C'].map(className => {
+            const classRows = rows.filter(row => String(row[classIndex]) === className);
+            const value = classRows.reduce((sum, row) => sum + (Number(row[valueIndex]) || 0), 0);
+            return { className, count: classRows.length, value, pct: null };
+        });
+        const grandTotal = summaries.reduce((sum, item) => sum + item.value, 0);
+        summaries.forEach(item => { item.pct = grandTotal ? item.value / grandTotal * 100 : 0; });
+    }
+
+    $('abc-summary').innerHTML = summaries.map(item => `
+        <div class="abc-card">
+            <div style="font-weight:600;">Class ${item.className} · ${item.count.toLocaleString()} products</div>
+            <div class="abc-card-value" style="color:${palette[item.className]};">${item.pct.toFixed(1)}%</div>
             <div style="color:var(--text-muted);">$${formatNumber(item.value)} of value</div>
-        </div>`;
-    }).join('');
+        </div>`).join('');
     $('abc-summary').style.display = 'grid';
 
+    // ── Chart 1: class-level contribution (accurate, uses true totals) ──
+    const classCanvas = $('abc-class-chart');
+    if (classCanvas) {
+        if (chartInstances['abc-class-chart']) chartInstances['abc-class-chart'].destroy();
+        chartInstances['abc-class-chart'] = new Chart(classCanvas, {
+            type: 'bar',
+            data: {
+                labels: summaries.map(s => `Class ${s.className}`),
+                datasets: [{
+                    data: summaries.map(s => s.value),
+                    backgroundColor: summaries.map(s => palette[s.className]),
+                    borderRadius: 6,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const s = summaries[ctx.dataIndex];
+                                return `$${formatNumber(s.value)} · ${s.pct.toFixed(1)}% · ${s.count} products`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { color: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() }, grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { callback: v => '$' + formatNumber(v), color: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() } }
+                }
+            }
+        });
+    }
+
+    if (classCanvas) $('abc-class-chart-wrap').style.display = 'block';
+
+    // ── Chart 2: top contributors within each class (existing detail view) ──
     // Six leading products from every class keeps the comparison readable
     // while the full result remains available in the table below.
-    const chartRows = summaries.flatMap(item => item.rows.slice(0, 6));
+    const classRowsByClass = { A: [], B: [], C: [] };
+    rows.forEach(row => {
+        const cls = String(row[classIndex]);
+        if (classRowsByClass[cls]) classRowsByClass[cls].push(row);
+    });
+    const chartRows = ['A', 'B', 'C'].flatMap(cls => classRowsByClass[cls].slice(0, 6));
     const labels = chartRows.map(row => row[productIndex]);
     const values = chartRows.map(row => Number(row[valueIndex]) || 0);
     const colors = chartRows.map(row => palette[String(row[classIndex])] || '#64748b');
@@ -1704,6 +1782,7 @@ async function runInventoryAnalysis() {
     $('inv-results-chart-wrap').style.display = 'none';
     $('abc-summary').style.display = 'none';
     $('abc-summary').innerHTML = '';
+    $('abc-class-chart-wrap').style.display = 'none';
     $('inv-chart-container').style.height = '220px';
 
     try {
@@ -1739,7 +1818,7 @@ async function runInventoryAnalysis() {
             html += '</tbody></table>';
             $('inv-results-table-wrap').innerHTML = html;
 
-            const isABC = type === 'abc_classification' && renderABCAnalysis(data.columns, data.rows);
+            const isABC = type === 'abc_classification' && renderABCAnalysis(data.columns, data.rows, data.class_summary);
             const numCols = data.columns.filter((h, i) => typeof data.rows[0]?.[i] === 'number').length;
             if (!isABC && numCols >= 1 && data.rows.length <= 20) {
                 const labels = data.rows.map(r => r[0]);

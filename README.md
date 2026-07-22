@@ -30,7 +30,7 @@ AI-powered data analytics dashboard for uploading datasets, cleaning them automa
 - LangChain
 - Gemini / Groq LLM integrations
 - Chart.js frontend
-- Streamlit legacy/alternate UI
+- Docker/Render deployment support
 
 ## Local Setup
 
@@ -85,23 +85,46 @@ Current smoke tests cover:
 - Per-user dataset visibility
 - Duplicate dataset upload prevention
 
-## Deployment Notes
+## Deployment on Render Free Tier
 
-For a free demo deployment, Render is a good fit.
+This repository includes a `Dockerfile`, `.dockerignore`, `requirements-render.txt`, and `render.yaml` blueprint for Render.
 
-Suggested Render start command:
+### Option A: Deploy from `render.yaml`
+
+1. Push this repository to GitHub.
+2. In Render, choose **New > Blueprint**.
+3. Connect this repository.
+4. Render will read `render.yaml` and create the `dataquery-ai` web service.
+5. Enter `GROQ_API_KEY` and/or `GEMINI_API_KEY` when prompted, or leave them blank and add later.
+
+### Option B: Manual Web Service
+
+If you create a manual Render Web Service:
+
+- Runtime: `Docker`
+- Instance type: `Free`
+- Branch: `main`
+- Health check path: `/api/status`
+- Dockerfile path: `./Dockerfile`
+
+The Docker container starts the app with:
 
 ```bash
 uvicorn api:app --host 0.0.0.0 --port $PORT
 ```
 
-Set these environment variables in Render:
+Environment variables:
 
 ```env
-JWT_SECRET_KEY=your_long_random_secret
+JWT_SECRET_KEY=generate_or_set_a_long_random_secret
+DEFAULT_DATABASE=sqlite
+AUTH_DB_PATH=/data/auth_users.db
+SQLITE_DATABASE=/data/uploaded_dataset.db
+UPLOAD_DIR=/data/uploads
 GROQ_API_KEY=your_key_optional
 GEMINI_API_KEY=your_key_optional
 ```
 
-Note: local SQLite files are not durable on most free hosting platforms. For a production deployment, move user/auth and uploaded dataset storage to Postgres.
+### Free Tier Limitations
 
+Render Free web services spin down after inactivity and have an ephemeral filesystem. That means local SQLite databases and uploaded datasets can be lost when the service restarts, redeploys, or spins down. This setup is suitable for demos. For production, move auth and dataset storage to Postgres/object storage.

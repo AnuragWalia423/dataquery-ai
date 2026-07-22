@@ -64,10 +64,13 @@ def _assert_basic_dataset_flow(client: TestClient, token: str, expected_table: s
     assert kpi.status_code == 200, kpi.text
     assert {"revenue", "profit", "orders", "customers"}.issubset(kpi.json())
 
+    me = client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200, me.text
+    actual_table = f"u{me.json()['user_id']}_{expected_table}"
     explorer = client.post(
         "/api/explorer",
         headers=headers,
-        json={"query": "SELECT COUNT(*) AS row_count FROM sqlite_master"},
+        json={"query": f"SELECT COUNT(*) AS row_count FROM {actual_table}"},
     )
     assert explorer.status_code == 200, explorer.text
     assert explorer.json()["count"] == 1
@@ -127,7 +130,7 @@ def test_dummy_inventory_project_flow():
         assert response.status_code == 200, f"{analysis_type}: {response.text}"
         payload = response.json()
         assert "columns" in payload and "rows" in payload
-        assert payload["rows"] or payload.get("message"), analysis_type
+        assert payload["rows"], f"{analysis_type}: {payload.get('message')}"
 
 
 def test_dataset_visibility_and_duplicate_filename_are_per_user():
@@ -141,6 +144,8 @@ def test_dataset_visibility_and_duplicate_filename_are_per_user():
     headers_b = {"Authorization": f"Bearer {token_b}"}
 
     _upload_dataset(client, token_a, "Sample_Superstore.csv", f"a_superstore_{stamp}")
+    user_a_id = client.get("/api/auth/me", headers=headers_a).json()["user_id"]
+    actual_a_table = f"u{user_a_id}_a_superstore_{stamp}"
 
     tables_a = client.get("/api/tables", headers=headers_a)
     tables_b = client.get("/api/tables", headers=headers_b)
@@ -159,7 +164,23 @@ def test_dataset_visibility_and_duplicate_filename_are_per_user():
     assert duplicate_for_same_user.status_code == 409
 
     _upload_dataset(client, token_b, "Sample_Superstore.csv", f"b_superstore_{stamp}")
+    user_b_id = client.get("/api/auth/me", headers=headers_b).json()["user_id"]
+    actual_b_table = f"u{user_b_id}_b_superstore_{stamp}"
     tables_b_after = client.get("/api/tables", headers=headers_b)
     assert tables_b_after.status_code == 200, tables_b_after.text
     assert f"b_superstore_{stamp}" in tables_b_after.json()["tables"]
     assert f"a_superstore_{stamp}" not in tables_b_after.json()["tables"]
+
+    own_explorer = client.post(
+        "/api/explorer",
+        headers=headers_b,
+        json={"query": f"SELECT COUNT(*) AS row_count FROM {actual_b_table}"},
+    )
+    assert own_explorer.status_code == 200, own_explorer.text
+
+    cross_tenant_explorer = client.post(
+        "/api/explorer",
+        headers=headers_b,
+        json={"query": f"SELECT COUNT(*) AS row_count FROM {actual_a_table}"},
+    )
+    assert cross_tenant_explorer.status_code == 403

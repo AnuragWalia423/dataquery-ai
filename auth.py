@@ -11,9 +11,11 @@ from sqlalchemy import (
     create_engine, text, Column, Integer, String, Boolean,
     UniqueConstraint, event
 )
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.exc import IntegrityError
 
+from config import Config
 from models import UserCreate, UserLogin, UserInDB, UserPublic, TokenData
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,13 @@ except KeyError as e:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 AUTH_DB_PATH = os.environ.get("AUTH_DB_PATH", "auth_users.db")
+
+# Escape hatch for deployments that want the auth DB on a *different*
+# Postgres instance than the one holding uploaded datasets (rare — most
+# deployments should just set DEFAULT_DATABASE=postgresql + POSTGRES_* and
+# let both use the same instance, see _make_engine() below). Accepts a full
+# SQLAlchemy URL, e.g. postgresql+psycopg2://user:pass@host:5432/dbname
+AUTH_DATABASE_URL = os.environ.get("AUTH_DATABASE_URL", "").strip()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -78,13 +87,63 @@ class UploadedDatasetModel(Base):
     )
 
 
+def _postgres_url_from_config() -> URL:
+    """Build a postgres+psycopg2 URL from the same POSTGRES_* settings that
+    database_connection.py already uses for uploaded-dataset storage, so
+    flipping DEFAULT_DATABASE=postgresql moves auth + data together without
+    needing a second set of env vars."""
+    return URL.create(
+        "postgresql+psycopg2",
+        username=Config.POSTGRES_USER,
+        password=Config.POSTGRES_PASSWORD,
+        host=Config.POSTGRES_HOST,
+        port=int(Config.POSTGRES_PORT),
+        database=Config.POSTGRES_DATABASE,
+    )
+
+
 def _make_engine():
+    """Build the auth-DB engine.
+
+    Resolution order (first match wins):
+      1. AUTH_DATABASE_URL — explicit override for split deployments where
+         auth lives on a different Postgres instance than uploaded data.
+      2. DEFAULT_DATABASE=postgresql/postgres — reuse the same POSTGRES_*
+         settings database_connection.py uses, so one env-var switch moves
+         both the auth DB and the uploaded-dataset DB to Postgres together.
+      3. SQLite fallback (AUTH_DB_PATH) — local/dev default. NOT durable on
+         most hosting platforms' ephemeral filesystems; do not use this in
+         production.
+    """
+    if AUTH_DATABASE_URL:
+        url = AUTH_DATABASE_URL
+        # Some platforms (Render/Heroku/Railway) inject the legacy
+        # "postgres://" scheme, which SQLAlchemy 2.x rejects outright.
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+        elif url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return create_engine(url, pool_pre_ping=True, pool_recycle=1800)
+
+    default_db = (Config.DEFAULT_DATABASE or "sqlite").lower()
+    if default_db in ("postgres", "postgresql"):
+        try:
+            import psycopg2  # noqa: F401
+        except ImportError as e:
+            raise RuntimeError(
+                "psycopg2-binary is required to run the auth DB on Postgres. "
+                "Install it with: pip install psycopg2-binary"
+            ) from e
+        return create_engine(
+            _postgres_url_from_config(),
+            pool_pre_ping=True,
+            pool_recycle=1800,
+        )
+
+    # ── SQLite fallback (dev only) ──────────────────────────────────────
     engine = create_engine(
         f"sqlite:///{AUTH_DB_PATH}",
         connect_args={"check_same_thread": False},
-        # Use StaticPool for SQLite so the same in-memory (or file) connection
-        # is shared across threads — avoids 'closed database' errors in
-        # Streamlit's multi-threaded rerun model.
         pool_pre_ping=True,
     )
     # Enforce foreign-key support and WAL mode for better concurrency

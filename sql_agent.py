@@ -2,11 +2,36 @@
 import pandas as pd
 import json
 import re
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Dict, List, Any
 from langchain_core.prompts import ChatPromptTemplate
 from llm_manager import LLMManager
 from schemas_detector import SchemaDetector
 from database_normalisation import DataNormalizer
+
+
+def _json_safe_default(obj):
+    """json.dumps() 'default' handler for values that turn up in Postgres
+    result sets but rarely (or never) did under SQLite.
+
+    SQLite is loosely typed -- a DATE/TIMESTAMP column frequently comes back
+    through pandas as a plain string, and NUMERIC-ish values as float. Postgres
+    returns real typed values instead: pandas.Timestamp/datetime.date for
+    dates, decimal.Decimal for NUMERIC columns, plus assorted numpy scalar
+    types. None of those are JSON-serializable by default, which is exactly
+    why "Object of type Timestamp is not JSON serializable" only started
+    appearing after switching DEFAULT_DATABASE to postgresql -- the schema
+    sample values silently changed type, not just backend.
+    """
+    if isinstance(obj, (pd.Timestamp, datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if hasattr(obj, "item"):  # numpy scalar types (int64, float64, bool_, etc.)
+        return obj.item()
+    return str(obj)
+
 
 
 SQL_GENERATION_TEMPLATE = """You are an expert SQL developer specializing in business intelligence and inventory management.
@@ -113,6 +138,20 @@ class EnhancedSQLAgent:
                 self.detect_schema(best_table)
         except Exception as e:
             print(f"Error initializing schema: {e}")
+
+    def _round_expr(self, expression: str, places: int = 2) -> str:
+        """Return dialect-safe ROUND SQL for numeric aggregate expressions."""
+        if getattr(self.db, "db_type", "sqlite") == "postgresql":
+            return f"ROUND(({expression})::numeric, {places})"
+        return f"ROUND({expression}, {places})"
+
+    @staticmethod
+    def _case_expr(when_clauses: List[str], else_value: str = None) -> str:
+        parts = ["CASE", *when_clauses]
+        if else_value is not None:
+            parts.append(f"ELSE {else_value}")
+        parts.append("END")
+        return "\n                        ".join(parts)
 
     def _choose_default_table(self, tables: List[str]) -> str:
         """Pick the most useful user dataset when several tables exist.
@@ -240,7 +279,7 @@ class EnhancedSQLAgent:
         """Get a concise schema description for prompts"""
         schema = self.detect_schema(table_name)
         if 'error' in schema:
-            return json.dumps({'error': schema['error']})
+            return json.dumps({'error': schema['error']}, default=_json_safe_default)
 
         # Create a clean schema description
         schema_info = {
@@ -258,7 +297,7 @@ class EnhancedSQLAgent:
             'primary_keys': schema.get('primary_keys', [])
         }
 
-        return json.dumps(schema_info, indent=2)
+        return json.dumps(schema_info, indent=2, default=_json_safe_default)
 
     def _dialect_rules(self) -> str:
         """Return prompt rules for the active SQL dialect."""
@@ -1063,47 +1102,47 @@ Missing Values:
 
         if stock_col:
             if reorder_col:
+                stock_status_case = self._case_expr([
+                    f"WHEN {stock_col} = 0 THEN 'Out of Stock'",
+                    f"WHEN {stock_col} <= {reorder_col} THEN 'Low Stock'",
+                    f"WHEN {stock_col} > {reorder_col} * 3 THEN 'Overstock'",
+                ], "'In Stock'")
                 analysis_queries['stock_status'] = f"""
                     SELECT 
-                        CASE 
-                            WHEN {stock_col} = 0 THEN 'Out of Stock'
-                            WHEN {stock_col} <= {reorder_col} THEN 'Low Stock'
-                            WHEN {stock_col} > {reorder_col} * 3 THEN 'Overstock'
-                            ELSE 'In Stock'
-                        END as Stock_Status,
+                        {stock_status_case} as Stock_Status,
                         COUNT(*) as Product_Count,
-                        ROUND(AVG({stock_col}), 2) as Avg_Stock
+                        {self._round_expr(f"AVG({stock_col})")} as Avg_Stock
                     FROM {table}
-                    GROUP BY Stock_Status
+                    GROUP BY {stock_status_case}
                 """
             else:
+                stock_status_case = self._case_expr([
+                    f"WHEN {stock_col} = 0 THEN 'Out of Stock'",
+                    f"WHEN {stock_col} <= 10 THEN 'Low Stock'",
+                    f"WHEN {stock_col} > 100 THEN 'Overstock'",
+                ], "'In Stock'")
                 analysis_queries['stock_status'] = f"""
                     SELECT 
-                        CASE 
-                            WHEN {stock_col} = 0 THEN 'Out of Stock'
-                            WHEN {stock_col} <= 10 THEN 'Low Stock'
-                            WHEN {stock_col} > 100 THEN 'Overstock'
-                            ELSE 'In Stock'
-                        END as Stock_Status,
+                        {stock_status_case} as Stock_Status,
                         COUNT(*) as Product_Count,
-                        ROUND(AVG({stock_col}), 2) as Avg_Stock
+                        {self._round_expr(f"AVG({stock_col})")} as Avg_Stock
                     FROM {table}
-                    GROUP BY Stock_Status
+                    GROUP BY {stock_status_case}
                 """
 
         # Reorder point analysis
         if reorder_col and stock_col:
+            reorder_status_case = self._case_expr([
+                f"WHEN {stock_col} <= {reorder_col} THEN 'Needs Reorder'",
+            ], "'Sufficient Stock'")
             analysis_queries['reorder_analysis'] = f"""
                 SELECT 
-                    CASE 
-                        WHEN {stock_col} <= {reorder_col} THEN 'Needs Reorder'
-                        ELSE 'Sufficient Stock'
-                    END as Reorder_Status,
+                    {reorder_status_case} as Reorder_Status,
                     COUNT(*) as Product_Count,
-                    ROUND(AVG({stock_col}), 2) as Avg_Stock,
-                    ROUND(AVG({reorder_col}), 2) as Avg_Reorder_Point
+                    {self._round_expr(f"AVG({stock_col})")} as Avg_Stock,
+                    {self._round_expr(f"AVG({reorder_col})")} as Avg_Reorder_Point
                 FROM {table}
-                GROUP BY Reorder_Status
+                GROUP BY {reorder_status_case}
             """
 
         # Inventory value
@@ -1139,8 +1178,8 @@ Missing Values:
                 analysis_queries['inventory_value'] = f"""
                     SELECT 
                         {category_col} as Category,
-                        ROUND(SUM({value_expr}), 2) as Total_{value_name},
-                        ROUND(AVG({value_expr}), 2) as Avg_Item_{value_name},
+                        {self._round_expr(f"SUM({value_expr})")} as Total_{value_name},
+                        {self._round_expr(f"AVG({value_expr})")} as Avg_Item_{value_name},
                         COUNT(*) as Total_Items
                     FROM {table}
                     GROUP BY {category_col}
@@ -1150,8 +1189,8 @@ Missing Values:
                 analysis_queries['inventory_value'] = f"""
                     SELECT 
                         'All Products' as Scope,
-                        ROUND(SUM({value_expr}), 2) as Total_{value_name},
-                        ROUND(AVG({value_expr}), 2) as Avg_Item_{value_name},
+                        {self._round_expr(f"SUM({value_expr})")} as Total_{value_name},
+                        {self._round_expr(f"AVG({value_expr})")} as Avg_Item_{value_name},
                         COUNT(*) as Total_Items
                     FROM {table}
                 """
@@ -1159,17 +1198,18 @@ Missing Values:
         # Turnover analysis
         turnover_col = inventory_cols.get('turnover')
         if turnover_col:
+            turnover_case = self._case_expr([
+                f"WHEN {turnover_col} < 1 THEN 'Slow Moving'",
+                f"WHEN {turnover_col} BETWEEN 1 AND 5 THEN 'Medium Moving'",
+                f"WHEN {turnover_col} > 5 THEN 'Fast Moving'",
+            ])
             analysis_queries['turnover_analysis'] = f"""
                 SELECT 
-                    CASE 
-                        WHEN {turnover_col} < 1 THEN 'Slow Moving'
-                        WHEN {turnover_col} BETWEEN 1 AND 5 THEN 'Medium Moving'
-                        WHEN {turnover_col} > 5 THEN 'Fast Moving'
-                    END as Turnover_Category,
+                    {turnover_case} as Turnover_Category,
                     COUNT(*) as Product_Count,
-                    ROUND(AVG({turnover_col}), 2) as Avg_Turnover
+                    {self._round_expr(f"AVG({turnover_col})")} as Avg_Turnover
                 FROM {table}
-                GROUP BY Turnover_Category
+                GROUP BY {turnover_case}
             """
 
         # Supplier analysis
@@ -1179,7 +1219,7 @@ Missing Values:
                 SELECT 
                     {supplier_col} as Supplier,
                     COUNT(*) as Product_Count,
-                    ROUND(SUM({stock_col}), 2) as Total_Stock
+                    {self._round_expr(f"SUM({stock_col})")} as Total_Stock
                 FROM {table}
                 GROUP BY {supplier_col}
                 ORDER BY Total_Stock DESC
@@ -1193,7 +1233,7 @@ Missing Values:
                 SELECT 
                     {warehouse_col} as Warehouse,
                     COUNT(*) as Product_Count,
-                    ROUND(SUM({stock_col}), 2) as Total_Stock
+                    {self._round_expr(f"SUM({stock_col})")} as Total_Stock
                 FROM {table}
                 GROUP BY {warehouse_col}
                 ORDER BY Total_Stock DESC
@@ -1202,7 +1242,12 @@ Missing Values:
         # Expiry analysis
         expiry_col = inventory_cols.get('expiry_date')
         if expiry_col:
-            if getattr(self.db, "db_type", "sqlite") == "mysql":
+            if expiry_col in schema.get('numeric_columns', []) or 'days' in expiry_col.lower():
+                expiry_case = (
+                    f"WHEN {expiry_col} < 0 THEN 'Expired' "
+                    f"WHEN {expiry_col} BETWEEN 0 AND 30 THEN 'Expiring Soon'"
+                )
+            elif getattr(self.db, "db_type", "sqlite") == "mysql":
                 expiry_case = (
                     f"WHEN {expiry_col} < CURDATE() THEN 'Expired' "
                     f"WHEN {expiry_col} BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 'Expiring Soon'"
@@ -1240,6 +1285,81 @@ Missing Values:
         if not result.empty:
             return result
         return pd.DataFrame({'message': ['No data found']})
+
+    def abc_class_summary(self, criteria: str = 'value') -> pd.DataFrame:
+        """True per-class totals for ABC classification -- count of products,
+        total value, and percentage of grand total -- computed with NO row
+        cap. abc_analysis() below caps its per-product detail rows to the
+        top 50 *within each class* (so a chart/table doesn't render 5,000
+        rows), but that cap means any UI code deriving "how many products in
+        Class A" or "Class A's total value" from those capped rows silently
+        undercounts the moment a class has more than 50 products. This
+        method exists so the UI has one true, uncapped number to show
+        instead of approximating from a partial sample.
+        """
+        schema = self.detect_schema()
+        if 'error' in schema:
+            return pd.DataFrame({'message': [schema['error']]})
+
+        inventory_cols = schema.get('inventory_columns', {})
+        table = schema.get('table_name')
+        mapping = schema.get('column_mapping', {})
+
+        if not table or not inventory_cols:
+            return pd.DataFrame({'message': ['No inventory columns detected']})
+
+        stock_col = inventory_cols.get('stock_level')
+        if not stock_col:
+            return pd.DataFrame({'message': ['No stock level column found']})
+
+        if criteria == 'value':
+            cost_col = None
+            for col in schema.get('numeric_columns', []):
+                if col != stock_col and ('cost' in col.lower() or 'price' in col.lower()):
+                    cost_col = col
+                    break
+            value_col = f"{stock_col} * {cost_col}" if cost_col else stock_col
+        else:
+            value_col = stock_col
+
+        product_col = inventory_cols.get('product_name') or mapping.get('product_name') or 'Product_Name'
+
+        total_value_expr = self._round_expr(f"SUM({value_col})")
+        pct_expr = self._round_expr(f"SUM({value_col}) / SUM(SUM({value_col})) OVER ()", 4)
+        cumulative_pct_expr = self._round_expr(
+            f"SUM(SUM({value_col})) OVER (ORDER BY SUM({value_col}) DESC) / SUM(SUM({value_col})) OVER ()",
+            4,
+        )
+        query = f"""
+            WITH product_metrics AS (
+                SELECT
+                    {product_col} as Product,
+                    {total_value_expr} as Total_Value,
+                    {pct_expr} as Percentage_Contribution,
+                    {cumulative_pct_expr} as Cumulative_Percentage
+                FROM {table}
+                GROUP BY {product_col}
+            ),
+            abc_classification AS (
+                SELECT
+                    Total_Value,
+                    CASE
+                        WHEN Cumulative_Percentage <= 0.8 THEN 'A'
+                        WHEN Cumulative_Percentage <= 0.95 THEN 'B'
+                        ELSE 'C'
+                    END as ABC_Class
+                FROM product_metrics
+            )
+            SELECT
+                ABC_Class,
+                COUNT(*) as Product_Count,
+                {self._round_expr("SUM(Total_Value)")} as Total_Value,
+                {self._round_expr("SUM(Total_Value) / SUM(SUM(Total_Value)) OVER () * 100")} as Pct_Of_Total
+            FROM abc_classification
+            GROUP BY ABC_Class
+            ORDER BY ABC_Class
+        """
+        return self.db.execute_query_strict(query)
 
     def abc_analysis(self, criteria: str = 'value') -> pd.DataFrame:
         """Perform ABC classification analysis.
@@ -1288,21 +1408,29 @@ Missing Values:
             value_col = stock_col
             value_name = "Quantity"
 
-        # BUG FIX / feature gap: this used to end with a GROUP BY ABC_Class
-        # that only returned 3 rows (one per class) with counts and totals --
-        # there was no way to see WHICH products actually fell into A, B, or
-        # C. Now it returns the real per-product breakdown instead, capped to
-        # the top 50 products *within each class* (via ROW_NUMBER, not a
-        # single overall LIMIT) so Class C isn't silently starved out by a
-        # flat cutoff sorted purely by value -- every class gets a fair,
-        # representative sample of its own top contributors.
+        # This returns the real per-product breakdown (not just 3 summary
+        # rows) so the UI can show which products actually fell into A, B,
+        # or C. No row cap here -- the browser table handles a few hundred/
+        # thousand rows fine via scrolling, and capping at the SQL level
+        # would silently hide real products from the table with no way for
+        # the frontend to recover them. The chart, separately, only plots a
+        # small representative sample per class (see index.html) since a
+        # chart with hundreds of bars is genuinely unreadable -- that
+        # sampling happens client-side against this full result, not here.
+        total_value_expr = self._round_expr(f"SUM({value_col})")
+        pct_expr = self._round_expr(f"SUM({value_col}) / SUM(SUM({value_col})) OVER ()", 4)
+        cumulative_pct_expr = self._round_expr(
+            f"SUM(SUM({value_col})) OVER (ORDER BY SUM({value_col}) DESC) / SUM(SUM({value_col})) OVER ()",
+            4,
+        )
+        pct_contribution_expr = self._round_expr("Percentage_Contribution * 100")
         query = f"""
             WITH product_metrics AS (
                 SELECT 
                     {product_col} as Product,
-                    ROUND(SUM({value_col}), 2) as Total_{value_name},
-                    ROUND(SUM({value_col}) / SUM(SUM({value_col})) OVER (), 4) as Percentage_Contribution,
-                    ROUND(SUM(SUM({value_col})) OVER (ORDER BY SUM({value_col}) DESC) / SUM(SUM({value_col})) OVER (), 4) as Cumulative_Percentage
+                    {total_value_expr} as Total_{value_name},
+                    {pct_expr} as Percentage_Contribution,
+                    {cumulative_pct_expr} as Cumulative_Percentage
                 FROM {table}
                 GROUP BY {product_col}
             ),
@@ -1318,23 +1446,13 @@ Missing Values:
                         ELSE 'C'
                     END as ABC_Class
                 FROM product_metrics
-            ),
-            ranked AS (
-                SELECT
-                    ABC_Class,
-                    Product,
-                    Total_{value_name},
-                    ROUND(Percentage_Contribution * 100, 2) as Pct_Contribution,
-                    ROW_NUMBER() OVER (PARTITION BY ABC_Class ORDER BY Total_{value_name} DESC) as rn
-                FROM abc_classification
             )
             SELECT
                 ABC_Class,
                 Product,
                 Total_{value_name},
-                Pct_Contribution
-            FROM ranked
-            WHERE rn <= 50
+                {pct_contribution_expr} as Pct_Contribution
+            FROM abc_classification
             ORDER BY ABC_Class, Total_{value_name} DESC
         """
 
