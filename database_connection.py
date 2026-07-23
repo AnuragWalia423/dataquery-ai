@@ -1,5 +1,6 @@
 # database.py
 import re
+import os
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
@@ -67,6 +68,7 @@ class DatabaseConnection:
             self.password = Config.POSTGRES_PASSWORD
             self.database = Config.POSTGRES_DATABASE
             self.port = int(Config.POSTGRES_PORT)
+            self.database_url = os.getenv("DATABASE_URL", "").strip()
         else:  # sqlite
             self.sqlite_path = Config.SQLITE_DATABASE
 
@@ -93,6 +95,22 @@ class DatabaseConnection:
                 pool_recycle=3600
             )
         elif self.db_type == 'postgresql':
+            if self.database_url:
+                # Render/Heroku-style URLs commonly use postgresql:// or the
+                # older postgres:// scheme. SQLAlchemy 2 works reliably with
+                # the explicit psycopg2 driver.
+                url = self.database_url
+                if url.startswith("postgres://"):
+                    url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+                elif url.startswith("postgresql://"):
+                    url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+                return create_engine(
+                    url,
+                    poolclass=NullPool,
+                    pool_pre_ping=True,
+                    pool_recycle=3600
+                )
+
             connection_url = URL.create(
                 "postgresql+psycopg2",
                 username=self.user,

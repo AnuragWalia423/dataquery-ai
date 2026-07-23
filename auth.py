@@ -42,7 +42,10 @@ AUTH_DB_PATH = os.environ.get("AUTH_DB_PATH", "auth_users.db")
 # deployments should just set DEFAULT_DATABASE=postgresql + POSTGRES_* and
 # let both use the same instance, see _make_engine() below). Accepts a full
 # SQLAlchemy URL, e.g. postgresql+psycopg2://user:pass@host:5432/dbname
-AUTH_DATABASE_URL = os.environ.get("AUTH_DATABASE_URL", "").strip()
+AUTH_DATABASE_URL = (
+    os.environ.get("AUTH_DATABASE_URL", "").strip()
+    or os.environ.get("DATABASE_URL", "").strip()
+)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

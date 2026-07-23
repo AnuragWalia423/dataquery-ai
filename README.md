@@ -87,7 +87,7 @@ Current smoke tests cover:
 
 ## Deployment on Render Free Tier
 
-This repository includes a `Dockerfile`, `.dockerignore`, `requirements-render.txt`, and `render.yaml` blueprint for Render.
+This repository includes a `Dockerfile`, `.dockerignore`, `requirements-render.txt`, and `render.yaml` blueprint for Render. The blueprint creates a free Render web service and a free Render Postgres database.
 
 ### Option A: Deploy from `render.yaml`
 
@@ -117,9 +117,9 @@ Environment variables:
 
 ```env
 JWT_SECRET_KEY=generate_or_set_a_long_random_secret
-DEFAULT_DATABASE=sqlite
-AUTH_DB_PATH=/data/auth_users.db
-SQLITE_DATABASE=/data/uploaded_dataset.db
+DEFAULT_DATABASE=postgresql
+DATABASE_URL=provided_by_Render_Postgres
+AUTH_DATABASE_URL=provided_by_Render_Postgres
 UPLOAD_DIR=/data/uploads
 GROQ_API_KEY=your_key_optional
 GEMINI_API_KEY=your_key_optional
@@ -127,4 +127,4 @@ GEMINI_API_KEY=your_key_optional
 
 ### Free Tier Limitations
 
-Render Free web services spin down after inactivity and have an ephemeral filesystem. That means local SQLite databases and uploaded datasets can be lost when the service restarts, redeploys, or spins down. This setup is suitable for demos. For production, move auth and dataset storage to Postgres/object storage.
+Render Free web services spin down after inactivity. The app stores auth records and uploaded dataset tables in Render Postgres when deployed through `render.yaml`. Files written to the container filesystem remain ephemeral, so keep long-term file/blob storage outside the container if you add persistent file uploads later.
