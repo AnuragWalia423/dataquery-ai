@@ -16,6 +16,7 @@ pymysql>=1.1.1
 psycopg2-binary>=2.9.10
 
 python-dotenv>=1.1.1
+sqlparse>=0.5.3
 PyJWT>=2.8.0
 passlib==1.7.4
 bcrypt==4.0.1
@@ -26,4 +27,3 @@ langchain-google-genai>=2.1.8
 langchain-groq>=0.3.0
 google-generativeai>=0.8.5
 groq>=0.30.0
-
