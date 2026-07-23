@@ -29,9 +29,9 @@ services:
       - key: UPLOAD_DIR
         value: /data/uploads
       - key: DEFAULT_PROVIDER
-        value: groq
-      - key: FALLBACK_PROVIDER
         value: gemini
+      - key: FALLBACK_PROVIDER
+        value: groq
       - key: GROQ_API_KEY
         sync: false
       - key: GEMINI_API_KEY
