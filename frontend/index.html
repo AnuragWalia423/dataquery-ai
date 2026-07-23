@@ -506,7 +506,15 @@
 
 <script>
 // ── Constants ──────────────────────────────────────────────────────────
-const BASE_URL = 'http://localhost:8000';
+// BASE_URL used to be hardcoded to 'http://localhost:8000', which only ever
+// worked on the developer's own machine. In production (Render), the API
+// and this frontend are served from the SAME origin (api.py mounts the
+// static frontend on the same FastAPI app that serves /api/*), so every
+// other user's browser was trying to reach *their own* localhost:8000 --
+// which doesn't exist -- instead of the actual deployed server. Using the
+// page's own origin works correctly both locally (still localhost:8000
+// during `uvicorn --reload`) and in production (whatever the real domain is).
+const BASE_URL = window.location.origin;
 const $ = id => document.getElementById(id);
 let chartInstances = {};
 let _selectedFile = null;
