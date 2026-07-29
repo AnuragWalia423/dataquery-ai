@@ -430,6 +430,10 @@ class InventoryAnalysisRequest(BaseModel):
     criteria: Optional[str] = None
 
 
+class KPIAnalysisRequest(BaseModel):
+    analysis_type: str
+
+
 # ── Auth endpoints ─────────────────────────────────────────────────────────────
 @app.post("/api/auth/signup", response_model=TokenResponse)
 def signup(req: SignupRequest, request: Request):
@@ -813,6 +817,59 @@ def get_all_kpis(
 
 
 # ── Inventory endpoints ──────────────────────────────────────────────────────
+_KPI_ANALYSIS_TYPES = {
+    "Sales by Region",
+    "Sales by Category",
+    "Profit by Category",
+    "Monthly Sales Trend",
+    "Monthly Profit Trend",
+    "YoY Revenue",
+    "YoY Profit",
+    "MoM Revenue",
+    "MoM Profit",
+    "Top Products",
+    "Top Customers by Revenue",
+    "Top Customers by Profit",
+    "Customer Analysis",
+}
+
+
+@app.post("/api/kpi/analysis")
+def run_kpi_analysis(
+        req: KPIAnalysisRequest,
+        current_user: Annotated[TokenData, Depends(get_current_user)],
+        agent: Annotated[EnhancedSQLAgent, Depends(get_scoped_agent)],
+):
+    """Run a predefined sales/KPI analysis directly and return structured rows."""
+    if req.analysis_type not in _KPI_ANALYSIS_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown analysis_type '{req.analysis_type}'. Valid options: {sorted(_KPI_ANALYSIS_TYPES)}",
+        )
+
+    if not agent.current_dataset:
+        raise HTTPException(status_code=400, detail="No active dataset. Upload a file first.")
+
+    try:
+        with _agent_lock:
+            agent.current_dataset = _user_active_dataset.get(current_user.user_id, agent.current_dataset)
+            df, sql = agent.execute_question(req.analysis_type)
+    except Exception as e:
+        logger.error(f"KPI analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if df is None or df.empty:
+        return {"columns": [], "rows": [], "sql": sql, "message": "No data found for this analysis."}
+
+    safe_df = df.astype(object).where(pd.notnull(df), None)
+    return {
+        "columns": df.columns.tolist(),
+        "rows": safe_convert(safe_df.values.tolist()),
+        "sql": sql,
+        "count": int(len(df)),
+    }
+
+
 @app.get("/api/inventory/metrics")
 def get_inventory_metrics(
         current_user: Annotated[TokenData, Depends(get_current_user)],

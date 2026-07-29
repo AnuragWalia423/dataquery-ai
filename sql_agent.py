@@ -343,12 +343,7 @@ class EnhancedSQLAgent:
         print(response.content)
         print("=" * 60)
 
-        sql = response.content
         sql = self._clean_generated_sql(response.content)
-        sql = response.content
-
-
-
         return sql.strip()
 
     @staticmethod
@@ -429,7 +424,7 @@ class EnhancedSQLAgent:
         year_match = re.search(r'\b(20\d{2}|19\d{2})\b', q)
         requested_year = year_match.group(1) if year_match else None
         if requested_year and date_col and sales_col and any(term in q for term in ("total revenue", "revenue generated", "sales generated", "total sales")):
-            profit_select = f",\n                    ROUND(SUM({profit_col}), 2) AS total_profit" if profit_col and "profit" in q else ""
+            profit_select = f",\n                    {self._round_expr(f'SUM({profit_col})')} AS total_profit" if profit_col and "profit" in q else ""
             # LIMIT 1 is explicit here (not left for the query validator to
             # add) because this query is filtered to a single year and
             # grouped by that same year, so it can only ever return one row.
@@ -441,7 +436,7 @@ class EnhancedSQLAgent:
             return f"""
                 SELECT
                     {year_expr} AS year,
-                    ROUND(SUM({sales_col}), 2) AS total_revenue
+                    {self._round_expr(f'SUM({sales_col})')} AS total_revenue
                     {profit_select}
                 FROM {table}
                 WHERE {year_expr} = '{requested_year}'
@@ -453,9 +448,9 @@ class EnhancedSQLAgent:
             return f"""
                 SELECT
                     {year_expr} AS year,
-                    ROUND(SUM({sales_col}), 2) AS total_revenue,
-                    ROUND(SUM({profit_col}), 2) AS total_profit,
-                    ROUND(SUM({profit_col}) * 100.0 / NULLIF(SUM({sales_col}), 0), 2) AS gross_margin_percentage
+                    {self._round_expr(f'SUM({sales_col})')} AS total_revenue,
+                    {self._round_expr(f'SUM({profit_col})')} AS total_profit,
+                    {self._round_expr(f'SUM({profit_col}) * 100.0 / NULLIF(SUM({sales_col}), 0)')} AS gross_margin_percentage
                 FROM {table}
                 WHERE {year_expr} = '{requested_year}'
                 GROUP BY {year_expr}
@@ -466,7 +461,7 @@ class EnhancedSQLAgent:
             return f"""
                 SELECT
                     {year_expr} AS year,
-                    ROUND(SUM({profit_col}), 2) AS total_profit
+                    {self._round_expr(f'SUM({profit_col})')} AS total_profit
                 FROM {table}
                 WHERE {year_expr} = '{requested_year}'
                 GROUP BY {year_expr}
@@ -488,14 +483,14 @@ class EnhancedSQLAgent:
         # that as evidence the aggregate only covers the first 1000 rows.
         if "total" in q and "revenue" in q and sales_col:
             return f"""
-                SELECT ROUND(SUM({sales_col}), 2) AS total_revenue
+                SELECT {self._round_expr(f'SUM({sales_col})')} AS total_revenue
                 FROM {table}
                 LIMIT 1
             """
 
         if "total" in q and "profit" in q and profit_col:
             return f"""
-                SELECT ROUND(SUM({profit_col}), 2) AS total_profit
+                SELECT {self._round_expr(f'SUM({profit_col})')} AS total_profit
                 FROM {table}
                 LIMIT 1
             """
@@ -526,14 +521,14 @@ class EnhancedSQLAgent:
             rank_by_profit = "profit" in q and not any(word in q for word in ("revenue", "sales")) and profit_col
             if rank_by_profit:
                 primary_col, primary_name = profit_col, "total_profit"
-                secondary_select = f",\n                    ROUND(SUM({sales_col}), 2) AS total_revenue" if sales_col else ""
+                secondary_select = f",\n                    {self._round_expr(f'SUM({sales_col})')} AS total_revenue" if sales_col else ""
             else:
                 primary_col, primary_name = sales_col, "total_revenue"
-                secondary_select = f",\n                    ROUND(SUM({profit_col}), 2) AS total_profit" if profit_col else ""
+                secondary_select = f",\n                    {self._round_expr(f'SUM({profit_col})')} AS total_profit" if profit_col else ""
             return f"""
                 SELECT
                     {customer_select},
-                    ROUND(SUM({primary_col}), 2) AS {primary_name}
+                    {self._round_expr(f'SUM({primary_col})')} AS {primary_name}
                     {secondary_select}
                 FROM {table}
                 GROUP BY {customer_group}
@@ -550,11 +545,11 @@ class EnhancedSQLAgent:
             limit_match = re.search(r'\btop\s+(\d+)\b', q)
             limit = int(limit_match.group(1)) if limit_match else 5
             limit = max(1, min(limit, 100))
-            profit_select = f",\n                    ROUND(SUM({profit_col}), 2) AS total_profit" if profit_col else ""
+            profit_select = f",\n                    {self._round_expr(f'SUM({profit_col})')} AS total_profit" if profit_col else ""
             return f"""
                 SELECT
                     {product_col} AS product,
-                    ROUND(SUM({sales_col}), 2) AS total_revenue
+                    {self._round_expr(f'SUM({sales_col})')} AS total_revenue
                     {profit_select}
                 FROM {table}
                 GROUP BY {product_col}
@@ -573,7 +568,7 @@ class EnhancedSQLAgent:
                 WITH monthly AS (
                     SELECT
                         {month_expr} AS month,
-                        ROUND(SUM({metric_col}), 2) AS {metric_name}
+                        {self._round_expr(f'SUM({metric_col})')} AS {metric_name}
                     FROM {table}
                     WHERE {date_valid_filter}
                     GROUP BY {month_expr}
@@ -602,9 +597,9 @@ class EnhancedSQLAgent:
                 want_sales = True  # default metric when none is named
             select_parts = [f"{month_expr} AS month"]
             if want_sales and sales_col:
-                select_parts.append(f"ROUND(SUM({sales_col}), 2) AS revenue")
+                select_parts.append(f"{self._round_expr(f'SUM({sales_col})')} AS revenue")
             if want_profit and profit_col:
-                select_parts.append(f"ROUND(SUM({profit_col}), 2) AS profit")
+                select_parts.append(f"{self._round_expr(f'SUM({profit_col})')} AS profit")
             select_clause = ",\n                    ".join(select_parts)
             return f"""
                 SELECT
@@ -622,7 +617,7 @@ class EnhancedSQLAgent:
                 WITH yearly AS (
                     SELECT
                         {year_expr} AS year,
-                        ROUND(SUM({metric_col}), 2) AS {metric_name}
+                        {self._round_expr(f'SUM({metric_col})')} AS {metric_name}
                     FROM {table}
                     WHERE {date_valid_filter}
                     GROUP BY {year_expr}
@@ -644,7 +639,7 @@ class EnhancedSQLAgent:
             return f"""
                 SELECT
                     {region_col} AS region,
-                    ROUND(SUM({sales_col}), 2) AS total_sales
+                    {self._round_expr(f'SUM({sales_col})')} AS total_sales
                 FROM {table}
                 GROUP BY {region_col}
                 ORDER BY total_sales DESC
@@ -662,10 +657,10 @@ class EnhancedSQLAgent:
             select_parts = [f"{category_col} AS category"]
             order_col = None
             if want_sales and sales_col:
-                select_parts.append(f"ROUND(SUM({sales_col}), 2) AS total_sales")
+                select_parts.append(f"{self._round_expr(f'SUM({sales_col})')} AS total_sales")
                 order_col = "total_sales"
             if want_profit and profit_col:
-                select_parts.append(f"ROUND(SUM({profit_col}), 2) AS total_profit")
+                select_parts.append(f"{self._round_expr(f'SUM({profit_col})')} AS total_profit")
                 order_col = order_col or "total_profit"
             select_clause = ",\n                    ".join(select_parts)
             return f"""
@@ -683,12 +678,12 @@ class EnhancedSQLAgent:
         # bare "Customer Analysis" button label work instead of falling
         # through to the LLM.
         if "customer" in q and "top" not in q and customer_group and sales_col:
-            profit_select = f",\n                    ROUND(SUM({profit_col}), 2) AS total_profit" if profit_col else ""
+            profit_select = f",\n                    {self._round_expr(f'SUM({profit_col})')} AS total_profit" if profit_col else ""
             orders_select = f",\n                    COUNT(DISTINCT {order_id_col}) AS order_count" if order_id_col else ""
             return f"""
                 SELECT
                     {customer_select},
-                    ROUND(SUM({sales_col}), 2) AS total_revenue
+                    {self._round_expr(f'SUM({sales_col})')} AS total_revenue
                     {profit_select}
                     {orders_select}
                 FROM {table}

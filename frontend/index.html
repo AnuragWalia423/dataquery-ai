@@ -1703,42 +1703,46 @@ async function runAnalysis(analysisType) {
     $('analysis-chart-wrap').style.display = 'none';
 
     try {
-        const res = await apiFetch('/api/query', {
+        const res = await apiFetch('/api/kpi/analysis', {
             method: 'POST',
-            body: JSON.stringify({ question: analysisType })
+            body: JSON.stringify({ analysis_type: analysisType })
         });
         if (!res) return;
         const data = await res.json();
-        const parsed = parseResponse(data.response || '');
 
-        if (parsed.rows && parsed.rows.length > 0) {
+        if (!res.ok) {
+            $('analysis-table-wrap').innerHTML = `<div style="padding:14px; color:var(--danger);">${data.detail || 'Error running analysis.'}</div>`;
+            return;
+        }
+
+        if (data.rows && data.rows.length > 0) {
             let html = '<table class="data-table"><thead><tr>';
-            parsed.headers.forEach(h => html += `<th>${h}</th>`);
+            data.columns.forEach(h => html += `<th>${h}</th>`);
             html += '</tr></thead><tbody>';
-            parsed.rows.forEach(row => {
+            data.rows.forEach(row => {
                 html += '<tr>';
-                row.forEach(cell => html += `<td>${cell}</td>`);
+                row.forEach(cell => html += `<td>${cell === null ? '' : cell}</td>`);
                 html += '</tr>';
             });
             html += '</tbody></table>';
             $('analysis-table-wrap').innerHTML = html;
 
-            const firstCol = parsed.headers[0]?.toLowerCase() || '';
+            const firstCol = data.columns[0]?.toLowerCase() || '';
             const isDate = firstCol.includes('month') || firstCol.includes('date') || firstCol.includes('year');
-            const numCols = parsed.headers.filter((h,i) => !isNaN(parseFloat(parsed.rows[0]?.[i]))).length;
-            if (isDate && numCols >= 1 && parsed.rows.length > 1) {
-                const labels = parsed.rows.map(r => r[0]);
-                const dataValues = parsed.rows.map(r => parseFloat(r[1]) || 0);
-                renderChart('analysis-chart', labels, dataValues, parsed.headers[1] || 'Value', 'line');
+            const numCols = data.columns.filter((h,i) => !isNaN(parseFloat(data.rows[0]?.[i]))).length;
+            if (isDate && numCols >= 1 && data.rows.length > 1) {
+                const labels = data.rows.map(r => r[0]);
+                const dataValues = data.rows.map(r => parseFloat(r[1]) || 0);
+                renderChart('analysis-chart', labels, dataValues, data.columns[1] || 'Value', 'line');
                 $('analysis-chart-wrap').style.display = 'block';
-            } else if (numCols >= 1 && parsed.rows.length <= 20) {
-                const labels = parsed.rows.map(r => r[0]);
-                const dataValues = parsed.rows.map(r => parseFloat(r[1]) || 0);
-                renderChart('analysis-chart', labels, dataValues, parsed.headers[1] || 'Value', 'bar');
+            } else if (numCols >= 1 && data.rows.length <= 20) {
+                const labels = data.rows.map(r => r[0]);
+                const dataValues = data.rows.map(r => parseFloat(r[1]) || 0);
+                renderChart('analysis-chart', labels, dataValues, data.columns[1] || 'Value', 'bar');
                 $('analysis-chart-wrap').style.display = 'block';
             }
         } else {
-            $('analysis-table-wrap').innerHTML = '<div style="padding:14px; color:var(--text-muted); text-align:center;">No data found for this analysis.</div>';
+            $('analysis-table-wrap').innerHTML = `<div style="padding:14px; color:var(--text-muted); text-align:center;">${data.message || 'No data found for this analysis.'}</div>`;
         }
     } catch(err) {
         $('analysis-table-wrap').innerHTML = '<div style="padding:14px; color:var(--danger);">Error running analysis.</div>';
